@@ -11,15 +11,9 @@ from typing import Optional
 from tqdm import tqdm
 
 from detector import extract_detection_payload, load_yolo, run_inference_batch, save_annotated
-from osv5m_common import HF_MODEL_FILENAME, HF_MODEL_REPO, META_FIELDS, ShardCache, shard_ids_for_split
-from osv5m_data import (
-    close_shard,
-    load_cursor,
-    load_metadata_map,
-    load_next_batch,
-    save_cursor,
-)
-from osv5m_s3 import restore_state_from_s3, s3_key, s3_upload_file, sync_state_to_s3
+from osv5m import ShardCache, shard_ids_for_split
+from osv5m import load_cursor, load_metadata_map, load_next_batch, save_cursor, close_shard
+from osv5m import restore_state_from_s3, sync_state_to_s3, s3_key, s3_upload_file
 from utils import (
     append_csv_row,
     append_processed_ids,
