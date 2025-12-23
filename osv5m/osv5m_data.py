@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from osv5m_common import Cursor, HF_DATASET_REPO, LoadedBatch, Meta, ShardCache
+from .osv5m_common import Cursor, HF_DATASET_REPO, LoadedBatch, Meta, ShardCache
 from utils import ensure_dir, hf_download_dataset_file
 
 
