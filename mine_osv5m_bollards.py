@@ -170,10 +170,14 @@ def main() -> int:
     ap.add_argument("--s3-restore", action="store_true")
     ap.add_argument("--s3-sync-state-every", type=int, default=1)
     ap.add_argument("--s3-delete-local", action="store_true")
+    ap.add_argument("--worker-id", type=int, default=0, help="Worker index [0..num-workers-1]")
+    ap.add_argument("--num-workers", type=int, default=1, help="Total number of workers")
 
     ap.add_argument("--max-retries", type=int, default=2)
 
     args = ap.parse_args()
+    if args.worker_id < 0 or args.worker_id >= args.num_workers:
+        raise SystemExit("--worker-id must be in [0, num-workers)")
 
     # mac safety; harmless on EC2 CUDA
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
@@ -232,8 +236,13 @@ def main() -> int:
     logger.info("Using model weights: %s", weights_path)
     model = load_yolo(weights_path)
 
-    shard_ids = shard_ids_for_split(args.split)
-
+    shard_ids_all = shard_ids_for_split(args.split)
+    shard_ids = [s for i, s in enumerate(shard_ids_all) if i % args.num_workers == args.worker_id]
+    logger.info(
+        "worker=%d/%d scanning %d shard(s) in split=%s",
+        args.worker_id, args.num_workers, len(shard_ids), args.split
+    )
+    
     positives = 0
     batches = 0
     t0 = time.time()
