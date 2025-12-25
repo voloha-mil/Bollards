@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from bollards.config import TrainConfig
-from bollards.constants import META_COLS
+from bollards.constants import LABEL_COL, META_COLS
 from bollards.data.datasets import BollardCropsDataset
 from bollards.data.labels import load_id_to_country
 from bollards.data.samplers import make_sampler
@@ -39,6 +39,24 @@ def run_training(cfg: TrainConfig) -> None:
 
     train_df = pd.read_csv(cfg.data.train_csv)
     val_df = pd.read_csv(cfg.data.val_csv)
+
+    data_max_label = int(max(train_df[LABEL_COL].max(), val_df[LABEL_COL].max()))
+    if id_to_country is not None:
+        required_classes = len(id_to_country)
+        if data_max_label >= required_classes:
+            raise ValueError(
+                f"Label {data_max_label} is out of bounds for country_map_json "
+                f"(len={required_classes})."
+            )
+    else:
+        required_classes = data_max_label + 1
+
+    if cfg.model.num_classes != required_classes:
+        print(
+            f"[info] overriding num_classes={cfg.model.num_classes} "
+            f"with required_classes={required_classes}"
+        )
+        cfg.model.num_classes = required_classes
 
     train_tfm = build_transforms(train=True, img_size=cfg.data.img_size)
     val_tfm = build_transforms(train=False, img_size=cfg.data.img_size)

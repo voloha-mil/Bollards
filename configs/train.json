@@ -35,7 +35,7 @@
   "logging": {
     "out_dir": "runs/bollard_country",
     "tb_dir": null,
-    "log_images": 16,
+    "log_images": 4,
     "log_image_every": 1,
     "tb_font_size": 18
   },
