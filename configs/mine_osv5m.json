@@ -1,0 +1,20 @@
+{
+  "split": "test",
+  "target": 1000,
+  "batch": 16,
+  "device": "auto",
+  "imgsz": 960,
+  "conf": 0.25,
+  "hf_cache": "./hf_cache",
+  "workdir": "./work_tmp",
+  "filtered": "./filtered_dataset_osv5m",
+  "meta": "test",
+  "s3_bucket": null,
+  "s3_prefix": "",
+  "s3_restore": false,
+  "s3_sync_state_every": 1,
+  "s3_delete_local": false,
+  "worker_id": 0,
+  "num_workers": 1,
+  "max_retries": 2
+}

@@ -74,4 +74,4 @@ echo
 echo "[done] Prepared repo on branch: $BRANCH"
 echo "Next:"
 echo "  cd $REPO_DIR && source $VENV_DIR/bin/activate"
-echo "  python mine_osv5m_bollards.py --help"
+echo "  python scripts/mine_osv5m.py --help"

@@ -1,0 +1,43 @@
+{
+  "data": {
+    "train_csv": "local_data/meta/train.csv",
+    "val_csv": "local_data/meta/val.csv",
+    "img_root": "local_data",
+    "country_map_json": "local_data/meta/country_map.json",
+    "img_size": 224,
+    "batch_size": 64,
+    "num_workers": 4,
+    "balanced_sampler": false,
+    "expand": 2.0
+  },
+  "model": {
+    "backbone_name": "efficientnet_b1",
+    "pretrained": true,
+    "num_classes": 128,
+    "img_emb_dropout": 0.2,
+    "meta_dim": 5,
+    "meta_hidden": 64,
+    "meta_dropout": 0.0,
+    "head_hidden": 256,
+    "head_dropout": 0.2
+  },
+  "optim": {
+    "lr": 0.0003,
+    "backbone_lr": 0.0001,
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.05,
+    "conf_weight_min": 0.2
+  },
+  "schedule": {
+    "epochs": 15,
+    "freeze_epochs": 1
+  },
+  "logging": {
+    "out_dir": "runs/bollard_country",
+    "tb_dir": null,
+    "log_images": 16,
+    "log_image_every": 1,
+    "tb_font_size": 18
+  },
+  "device": "auto"
+}

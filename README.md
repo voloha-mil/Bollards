@@ -2,6 +2,19 @@ export PYTORCH_ENABLE_MPS_FALLBACK=1
 
 http://huggingface.co/maco018/YOLOv12_traffic-delineator
 
+### Quickstart
+
+- Configs live in `configs/` (JSON). Override with `--set section.key=value`.
+- Mining: `python scripts/mine_osv5m.py --config configs/mine_osv5m.json --set target=500`
+- Prepare local dataset: `python scripts/prepare_local_dataset.py --config configs/prepare_local_dataset.json --set num_boxes=2000`
+- Training: `python scripts/train.py --config configs/train.json --set data.batch_size=128`
+
+### Layout
+
+- `bollards/`: core library (data, models, training, pipelines, io)
+- `scripts/`: CLI entrypoints
+- `configs/`: default configs
+
 
 ### S3 layout (`s3://geo-bollard-ml/`)
 

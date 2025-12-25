@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from utils import ensure_dir
+from bollards.io.fs import ensure_dir
 
 
 def s3_key(prefix: str, *parts: str) -> str:
