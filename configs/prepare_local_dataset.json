@@ -3,7 +3,7 @@
   "root_prefix": "runs/osv5m_cpu",
   "split": "test",
   "out_dir": "./local_data",
-  "num_boxes": 1000,
+  "num_boxes": 100000,
   "max_boxes_per_image": 1,
   "min_conf": 0.0,
   "cls_allow": null,
