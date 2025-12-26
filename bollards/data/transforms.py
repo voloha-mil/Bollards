@@ -8,7 +8,7 @@ def build_transforms(train: bool, img_size: int) -> transforms.Compose:
     if train:
         return transforms.Compose([
             transforms.Resize((img_size + 32, img_size + 32)),
-            # transforms.RandomResizedCrop(img_size, scale=(0.75, 1.0)),
+            transforms.RandomResizedCrop(img_size, scale=(0.75, 1.0)),
             transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.10, hue=0.02),
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.15),
             transforms.ToTensor(),
