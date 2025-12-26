@@ -8,14 +8,15 @@ import random
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import boto3
 import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
 from bollards.config import PrepareLocalDatasetConfig
 from bollards.constants import LOCAL_DATASET_OUT_COLS, LOCAL_DATASET_REQUIRED_COLS
+from bollards.data.bboxes import normalize_bbox_xyxy_px
 from bollards.io.fs import ensure_dir
+from bollards.io.s3 import s3_download_file as s3_download_file_raw, s3_list_keys
 from bollards.utils.seeding import make_python_rng
 
 
@@ -25,27 +26,20 @@ def list_filtered_csv_keys(bucket: str, root_prefix: str, split_name: str) -> Li
       s3://bucket/{root_prefix}/wXX/{split_name}/state/filtered.csv
     Example root_prefix: runs/osv5m_cpu
     """
-    s3 = boto3.client("s3")
-    paginator = s3.get_paginator("list_objects_v2")
     suffix = f"/{split_name}/state/filtered.csv"
-    keys: List[str] = []
-
-    for page in paginator.paginate(Bucket=bucket, Prefix=root_prefix.rstrip("/") + "/"):
-        for obj in page.get("Contents", []):
-            k = obj["Key"]
-            if k.endswith(suffix) and "/w" in k:
-                keys.append(k)
-
-    keys.sort()
-    return keys
+    prefix = root_prefix.rstrip("/") + "/"
+    keys = [
+        k for k in s3_list_keys(bucket=bucket, prefix=prefix, suffixes=[suffix])
+        if k.endswith(suffix) and "/w" in k
+    ]
+    return sorted(keys)
 
 
-def s3_download_file(bucket: str, key: str, local_path: str) -> None:
+def download_s3_file(bucket: str, key: str, local_path: str) -> None:
     ensure_dir(Path(local_path).parent)
     if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
         return
-    s3 = boto3.client("s3")
-    s3.download_file(bucket, key, local_path)
+    s3_download_file_raw(bucket=bucket, key=key, local_path=Path(local_path))
 
 
 def load_filtered_split_df(
@@ -66,7 +60,7 @@ def load_filtered_split_df(
         worker = parts[2] if len(parts) > 2 else "wxx"
         fn = f"{worker}_{split_name}_filtered.csv"
         lp = meta_dir / fn
-        s3_download_file(bucket, k, str(lp))
+        download_s3_file(bucket, k, str(lp))
         local_csv_paths.append(str(lp))
 
     dfs = []
@@ -110,28 +104,6 @@ def read_image_size(path: str) -> Tuple[int, int]:
     with Image.open(path) as im:
         w, h = im.size
     return w, h
-
-
-def normalize_bbox_xyxy_px(
-    x1: float,
-    y1: float,
-    x2: float,
-    y2: float,
-    w: int,
-    h: int,
-) -> Tuple[float, float, float, float]:
-    x1n = min(max(x1 / w, 0.0), 1.0)
-    x2n = min(max(x2 / w, 0.0), 1.0)
-    y1n = min(max(y1 / h, 0.0), 1.0)
-    y2n = min(max(y2 / h, 0.0), 1.0)
-    x1n, x2n = sorted([x1n, x2n])
-    y1n, y2n = sorted([y1n, y2n])
-    eps = 1e-6
-    if x2n - x1n < eps:
-        x2n = min(1.0, x1n + eps)
-    if y2n - y1n < eps:
-        y2n = min(1.0, y1n + eps)
-    return x1n, y1n, x2n, y2n
 
 
 def build_country_map(countries: List[str]) -> Dict[str, int]:
@@ -416,7 +388,7 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
 
     def dl_one(bucket_key_path):
         b, k, lp = bucket_key_path
-        s3_download_file(str(b), str(k), lp)
+        download_s3_file(str(b), str(k), lp)
 
     print(f"[info] downloading {len(img_jobs)} original images...")
     with cf.ThreadPoolExecutor(max_workers=16) as ex:

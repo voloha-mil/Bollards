@@ -9,13 +9,8 @@
     "golden_default_category": "bollard"
   },
   "detector": {
+    "include": "common_detector.json",
     "enabled": false,
-    "weights_path": null,
-    "hf_repo": "maco018/YOLOv12_traffic-delineator",
-    "hf_filename": "models/YOLOv12_traffic-delineator.pt",
-    "hf_cache": "./hf_cache",
-    "imgsz": 960,
-    "conf": 0.25,
     "batch": 8,
     "max_images": 0,
     "cls_allow": null,
@@ -25,9 +20,8 @@
     "class_names": null
   },
   "classifier": {
+    "include": "common_classifier.json",
     "checkpoint_path": "runs/bollard_country/run_20251226_115214/best.pt",
-    "img_size": 224,
-    "expand": 2.0,
     "batch_size": 64,
     "num_workers": 0
   },

@@ -1,728 +1,66 @@
 from __future__ import annotations
 
 import json
-import logging
-import os
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
 
-import numpy as np
 import pandas as pd
-import torch
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from PIL import Image, ImageDraw, ImageFont
-from torch.utils.data import DataLoader
-from tqdm import tqdm
+from PIL import Image
 
 from bollards.config import AnalyzeRunConfig
 from bollards.constants import BBOX_COLS, LABEL_COL, META_COLS, PATH_COL
-from bollards.data.country_names import golden_country_to_code
 from bollards.data.bboxes import compute_avg_bbox_wh
-from bollards.data.datasets import BollardCropsDataset
+from bollards.data.country_names import golden_country_to_code
 from bollards.data.labels import load_id_to_country
-from bollards.data.transforms import build_transforms
-from bollards.detect.yolo import load_yolo, run_inference_batch
 from bollards.io.fs import ensure_dir
-from bollards.io.hf import hf_download_model_file
-from bollards.models.bollard_net import BollardNet, ModelConfig
-from bollards.pipelines.local_dataset import normalize_bbox_xyxy_px
-from bollards.utils.seeding import make_python_rng, make_torch_generator, seed_everything, seed_worker
-
-
-class BollardCropsDatasetWithIndex(BollardCropsDataset):
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        item = super().__getitem__(idx)
-        item["index"] = torch.tensor(idx, dtype=torch.long)
-        return item
-
-
-def setup_logger(log_path: Path) -> logging.Logger:
-    logger = logging.getLogger("analyze_run")
-    logger.setLevel(logging.INFO)
-
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-
-    file_handler = logging.FileHandler(log_path)
-    file_handler.setFormatter(formatter)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-
-    logger.handlers.clear()
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
-    return logger
-
-
-def resolve_device(device_str: str) -> torch.device:
-    if device_str and device_str != "auto":
-        return torch.device(device_str)
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def _load_detector(cfg: AnalyzeRunConfig, logger: logging.Logger):
-    weights_path = cfg.detector.weights_path
-    if weights_path:
-        weights = Path(weights_path)
-    else:
-        hf_cache = Path(cfg.detector.hf_cache)
-        weights = hf_download_model_file(
-            repo_id=cfg.detector.hf_repo,
-            filename=cfg.detector.hf_filename,
-            cache_dir=hf_cache,
-        )
-    logger.info("Using detector weights: %s", weights)
-    return load_yolo(weights)
-
-
-def _load_classifier(cfg: AnalyzeRunConfig, device: torch.device, logger: logging.Logger) -> tuple[BollardNet, ModelConfig]:
-    ckpt_path = cfg.classifier.checkpoint_path
-    if not ckpt_path:
-        raise SystemExit("classifier.checkpoint_path is required")
-
-    ckpt = torch.load(ckpt_path, map_location=device)
-    model_cfg_dict = ckpt.get("cfg")
-    if not model_cfg_dict:
-        raise SystemExit("Classifier checkpoint missing cfg metadata")
-
-    model_cfg = ModelConfig(**model_cfg_dict)
-    model_cfg.pretrained = False
-    if model_cfg.meta_dim != len(META_COLS):
-        raise SystemExit(f"model.meta_dim must match META_COLS ({len(META_COLS)})")
-
-    model = BollardNet(model_cfg).to(device)
-    state = ckpt.get("model") or ckpt.get("state_dict")
-    if not state:
-        raise SystemExit("Classifier checkpoint missing model weights")
-    model.load_state_dict(state)
-    model.eval()
-    logger.info("Loaded classifier: %s", ckpt_path)
-    return model, model_cfg
-
-
-def _load_font(font_size: int) -> ImageFont.ImageFont:
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-    ]
-    for p in candidates:
-        try:
-            if os.path.exists(p):
-                return ImageFont.truetype(p, size=font_size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
-
-
-def _class_name(cls_id: int, names: Optional[list[str]]) -> str:
-    if names and 0 <= cls_id < len(names):
-        return str(names[cls_id])
-    return f"class_{cls_id}"
-
-
-def _build_country_mappings(
-    id_to_country: Optional[list[str]],
-    main_df: pd.DataFrame,
-) -> tuple[Optional[list[str]], Optional[Dict[str, int]]]:
-    if id_to_country:
-        country_to_id = {name: idx for idx, name in enumerate(id_to_country) if name}
-        return id_to_country, country_to_id
-
-    if "country" not in main_df.columns or LABEL_COL not in main_df.columns:
-        return None, None
-
-    pairs = main_df[[LABEL_COL, "country"]].dropna().drop_duplicates()
-    if pairs.empty:
-        return None, None
-
-    dup_country = pairs.groupby("country")[LABEL_COL].nunique()
-    if (dup_country > 1).any():
-        bad = dup_country[dup_country > 1].index.tolist()
-        raise ValueError(f"Multiple ids for country names in main data: {bad}")
-
-    dup_id = pairs.groupby(LABEL_COL)["country"].nunique()
-    if (dup_id > 1).any():
-        bad = dup_id[dup_id > 1].index.tolist()
-        raise ValueError(f"Multiple country names for ids in main data: {bad}")
-
-    country_to_id = {str(row["country"]): int(row[LABEL_COL]) for _, row in pairs.iterrows()}
-    max_id = max(country_to_id.values())
-    id_to_country = [""] * (max_id + 1)
-    for name, idx in country_to_id.items():
-        id_to_country[idx] = name
-
-    return id_to_country, country_to_id
-
-
-def _prepare_golden_df_for_classifier(
-    golden_df: pd.DataFrame,
-    country_to_id: Dict[str, int],
-    *,
-    avg_bbox_w: float,
-    avg_bbox_h: float,
-) -> pd.DataFrame:
-    if avg_bbox_w is None or avg_bbox_h is None:
-        raise ValueError("Golden dataset requires explicit avg_bbox_w/avg_bbox_h values.")
-
-    required = [PATH_COL, "country"]
-    missing = [c for c in required if c not in golden_df.columns]
-    if missing:
-        raise ValueError(f"Golden CSV missing required columns: {missing}")
-
-    df = golden_df.copy()
-    df["country_code"] = df["country"].apply(golden_country_to_code)
-    if df["country_code"].isna().any():
-        unknown = sorted(df.loc[df["country_code"].isna(), "country"].dropna().unique().tolist())
-        print(f"[warn] golden CSV has unmapped countries; dropping: {unknown}")
-        df = df.loc[df["country_code"].notna()].copy()
-
-    df[LABEL_COL] = df["country_code"].map(country_to_id)
-    if df[LABEL_COL].isna().any():
-        unknown_codes = sorted(df.loc[df[LABEL_COL].isna(), "country_code"].dropna().unique().tolist())
-        print(f"[warn] golden CSV has countries not in label map; dropping codes: {unknown_codes}")
-        df = df.loc[df[LABEL_COL].notna()].copy()
-
-    if df.empty:
-        raise ValueError("Golden CSV has no rows after mapping countries to labels.")
-
-    df[LABEL_COL] = df[LABEL_COL].astype(int)
-
-    bbox_defaults = {"x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0}
-    meta_defaults = {
-        "x_center": 0.5,
-        "y_center": 0.5,
-        "w": avg_bbox_w,
-        "h": avg_bbox_h,
-        "conf": 1.0,
-    }
-    for col in BBOX_COLS:
-        df[col] = bbox_defaults[col]
-    for col in META_COLS:
-        df[col] = meta_defaults[col]
-
-    df = df.drop(columns=["country_code"])
-    return df
-
-
-def _maybe_add_region_by_country(
-    df: pd.DataFrame,
-    country_col: str,
-    region_map: Optional[Dict[str, str]],
-    out_col: str = "region",
-) -> pd.DataFrame:
-    if not region_map:
-        return df
-    df = df.copy()
-    df[out_col] = df[country_col].map(region_map)
-    return df
-
-
-def _build_region_map(cfg: AnalyzeRunConfig, golden_df: Optional[pd.DataFrame]) -> Optional[Dict[str, str]]:
-    if cfg.data.region_map_json:
-        with open(cfg.data.region_map_json, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return {str(k): str(v) for k, v in data.items()}
-
-    if golden_df is None:
-        return None
-
-    if "continent" not in golden_df.columns or "country" not in golden_df.columns:
-        return None
-
-    region_map: Dict[str, str] = {}
-    for _, row in golden_df[["continent", "country"]].dropna().iterrows():
-        code = golden_country_to_code(str(row["country"]))
-        if not code:
-            continue
-        region = str(row["continent"]).strip()
-        if not region:
-            continue
-        if code in region_map and region_map[code] != region:
-            continue
-        region_map[code] = region
-    return region_map or None
-
-
-def _ensure_image_id(df: pd.DataFrame) -> pd.Series:
-    if "image_id" in df.columns:
-        return df["image_id"].astype(str)
-    if "orig_sha1" in df.columns:
-        return df["orig_sha1"].astype(str)
-    if PATH_COL in df.columns:
-        return df[PATH_COL].apply(lambda p: Path(str(p)).stem)
-    return pd.Series(["unknown"] * len(df))
-
-
-def _save_csv(df: pd.DataFrame, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False)
-
-
-def _save_json(obj: Any, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2)
-
-
-def _plot_hist(values: Iterable[float], path: Path, title: str, xlabel: str, bins: int = 30) -> None:
-    vals = [v for v in values if np.isfinite(v)]
-    if not vals:
-        return
-    plt.figure(figsize=(6, 4))
-    plt.hist(vals, bins=bins, color="#4c78a8", edgecolor="white")
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel("count")
-    plt.tight_layout()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(path, dpi=160)
-    plt.close()
-
-
-def _plot_bar(df: pd.DataFrame, path: Path, title: str, x_col: str, y_col: str, max_items: int = 20) -> None:
-    if df.empty:
-        return
-    data = df.head(max_items)
-    plt.figure(figsize=(7, 4))
-    plt.barh(data[x_col].astype(str), data[y_col].astype(float), color="#54a24b")
-    plt.title(title)
-    plt.xlabel(y_col)
-    plt.tight_layout()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(path, dpi=160)
-    plt.close()
-
-
-def _crop_with_bbox(img: Image.Image, x1: float, y1: float, x2: float, y2: float, expand: float) -> Image.Image:
-    w, h = img.size
-    x1n, y1n, x2n, y2n = x1, y1, x2, y2
-    x1n, x2n = sorted([max(0.0, min(1.0, x1n)), max(0.0, min(1.0, x2n))])
-    y1n, y2n = sorted([max(0.0, min(1.0, y1n)), max(0.0, min(1.0, y2n))])
-
-    xc = 0.5 * (x1n + x2n)
-    yc = 0.5 * (y1n + y2n)
-    bw = (x2n - x1n) * expand
-    bh = (y2n - y1n) * expand
-
-    ex1 = max(0.0, xc - 0.5 * bw)
-    ey1 = max(0.0, yc - 0.5 * bh)
-    ex2 = min(1.0, xc + 0.5 * bw)
-    ey2 = min(1.0, yc + 0.5 * bh)
-
-    px1 = int(round(ex1 * w))
-    py1 = int(round(ey1 * h))
-    px2 = int(round(ex2 * w))
-    py2 = int(round(ey2 * h))
-    if px2 <= px1:
-        px2 = min(w, px1 + 1)
-    if py2 <= py1:
-        py2 = min(h, py1 + 1)
-
-    return img.crop((px1, py1, px2, py2))
-
-
-def _draw_boxes(img: Image.Image, boxes: list[dict[str, Any]], color_map: dict[int, tuple[int, int, int]]) -> Image.Image:
-    draw = ImageDraw.Draw(img)
-    w, h = img.size
-    for det in boxes:
-        x1 = int(round(det["x1"] * w))
-        y1 = int(round(det["y1"] * h))
-        x2 = int(round(det["x2"] * w))
-        y2 = int(round(det["y2"] * h))
-        cls_id = int(det["cls"]) if "cls" in det else -1
-        color = color_map.get(cls_id, (255, 0, 0))
-        draw.rectangle((x1, y1, x2, y2), outline=color, width=2)
-    return img
-
-
-def _make_color_map(ids: Iterable[int]) -> dict[int, tuple[int, int, int]]:
-    palette = [
-        (230, 25, 75),
-        (60, 180, 75),
-        (255, 225, 25),
-        (0, 130, 200),
-        (245, 130, 48),
-        (145, 30, 180),
-        (70, 240, 240),
-        (240, 50, 230),
-        (210, 245, 60),
-        (250, 190, 212),
-    ]
-    ids = list(sorted(set(ids)))
-    return {cid: palette[i % len(palette)] for i, cid in enumerate(ids)}
-
-
-def _dataset_summary(df: pd.DataFrame, country_col: str, region_col: Optional[str]) -> dict[str, Any]:
-    image_id = _ensure_image_id(df)
-    n_images = image_id.nunique()
-    n_objects = len(df)
-    objects_per_image = float(n_objects) / max(n_images, 1)
-    out = {
-        "n_images": int(n_images),
-        "n_objects": int(n_objects),
-        "objects_per_image": objects_per_image,
-        "n_countries": int(df[country_col].nunique()) if country_col in df.columns else 0,
-    }
-    if region_col and region_col in df.columns:
-        out["n_regions"] = int(df[region_col].nunique())
-    return out
-
-
-def _value_counts(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    if col not in df.columns or df.empty:
-        return pd.DataFrame({col: [], "count": []})
-    counts = df[col].value_counts(dropna=True)
-    if counts.empty:
-        return pd.DataFrame({col: [], "count": []})
-    return counts.reset_index().rename(columns={"index": col, col: "count"})
-
-
-def _top_bottom(df: pd.DataFrame, col: str, n: int = 5) -> tuple[pd.DataFrame, pd.DataFrame]:
-    counts = _value_counts(df, col)
-    if counts.empty:
-        return counts, counts
-    top = counts.head(n).copy()
-    bottom = counts.tail(n).copy()
-    return top, bottom
-
-
-def _calc_bbox_area_aspect(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
-    if not all(c in df.columns for c in BBOX_COLS):
-        return pd.DataFrame()
-    w = (df["x2"] - df["x1"]).clip(lower=0.0)
-    h = (df["y2"] - df["y1"]).clip(lower=0.0)
-    area = (w * h).clip(lower=0.0)
-    aspect = (w / h.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
-    out = pd.DataFrame({
-        f"{prefix}_area": area,
-        f"{prefix}_aspect": aspect,
-    })
-    return out
-
-
-def _calc_crop_area_aspect(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
-    if not all(c in df.columns for c in ["crop_w", "crop_h", "orig_w", "orig_h"]):
-        return pd.DataFrame()
-    area = (df["crop_w"] * df["crop_h"]) / (df["orig_w"] * df["orig_h"]).replace(0, np.nan)
-    aspect = df["crop_w"] / df["crop_h"].replace(0, np.nan)
-    out = pd.DataFrame({
-        f"{prefix}_area": area,
-        f"{prefix}_aspect": aspect,
-    })
-    return out
-
-
-def _filter_detections(
-    cfg: AnalyzeRunConfig,
-    boxes_xyxy: np.ndarray,
-    confs: np.ndarray,
-    clss: np.ndarray,
-) -> list[dict[str, float]]:
-    allow_set = set(cfg.detector.cls_allow) if cfg.detector.cls_allow is not None else None
-    filtered = []
-    for i in range(len(confs)):
-        conf = float(confs[i])
-        cls = float(clss[i])
-        x1, y1, x2, y2 = [float(v) for v in boxes_xyxy[i]]
-
-        if conf < cfg.detector.conf:
-            continue
-        if allow_set is not None and cls not in allow_set:
-            continue
-        if abs(x2 - x1) < cfg.detector.min_box_w_px:
-            continue
-        if abs(y2 - y1) < cfg.detector.min_box_h_px:
-            continue
-
-        filtered.append({
-            "conf": conf,
-            "cls": cls,
-            "x1": x1,
-            "y1": y1,
-            "x2": x2,
-            "y2": y2,
-        })
-
-    filtered.sort(key=lambda d: d["conf"], reverse=True)
-    max_keep = max(1, int(cfg.detector.max_boxes_per_image))
-    return filtered[:max_keep]
-
-
-def _run_detector(
-    cfg: AnalyzeRunConfig,
-    logger: logging.Logger,
-    main_df: pd.DataFrame,
-    img_root: Path,
-    run_dir: Path,
-) -> pd.DataFrame:
-    detector = _load_detector(cfg, logger)
-    device = resolve_device(cfg.device)
-
-    image_paths = main_df[PATH_COL].dropna().unique().tolist()
-    if cfg.detector.max_images > 0:
-        image_paths = image_paths[: cfg.detector.max_images]
-
-    records = []
-    det_counts = []
-
-    batches = [image_paths[i : i + cfg.detector.batch] for i in range(0, len(image_paths), cfg.detector.batch)]
-    for batch_paths in tqdm(batches, desc="detect", leave=False, dynamic_ncols=True):
-        abs_paths = [img_root / p for p in batch_paths]
-        results = run_inference_batch(
-            model=detector,
-            image_paths=abs_paths,
-            imgsz=cfg.detector.imgsz,
-            conf=cfg.detector.conf,
-            device=str(device),
-            batch=cfg.detector.batch,
-        )
-        for rel_path, result in zip(batch_paths, results):
-            boxes = result.boxes
-            if boxes is None or len(boxes) == 0:
-                det_counts.append(0)
-                continue
-            boxes_xyxy = boxes.xyxy.cpu().numpy()
-            confs = boxes.conf.cpu().numpy()
-            clss = boxes.cls.cpu().numpy()
-            filtered = _filter_detections(cfg, boxes_xyxy, confs, clss)
-            det_counts.append(len(filtered))
-            if not filtered:
-                continue
-
-            h, w = result.orig_shape
-            for det in filtered:
-                x1n, y1n, x2n, y2n = normalize_bbox_xyxy_px(det["x1"], det["y1"], det["x2"], det["y2"], w, h)
-                xc = 0.5 * (x1n + x2n)
-                yc = 0.5 * (y1n + y2n)
-                bw = x2n - x1n
-                bh = y2n - y1n
-                records.append({
-                    "image_path": rel_path,
-                    "x1": x1n,
-                    "y1": y1n,
-                    "x2": x2n,
-                    "y2": y2n,
-                    "x_center": xc,
-                    "y_center": yc,
-                    "w": bw,
-                    "h": bh,
-                    "conf": float(det["conf"]),
-                    "cls": float(det["cls"]),
-                })
-
-    det_df = pd.DataFrame(records)
-    det_csv = run_dir / "artifacts" / "detector" / "detections.csv"
-    _save_csv(det_df, det_csv)
-
-    counts_df = pd.DataFrame({"detections_per_image": det_counts})
-    _save_csv(counts_df, run_dir / "artifacts" / "detector" / "detections_per_image.csv")
-    return det_df
-
-
-def _run_classifier(
-    cfg: AnalyzeRunConfig,
-    df: pd.DataFrame,
-    img_root: Path,
-    id_to_country: Optional[list[str]],
-    region_map: Optional[Dict[str, str]],
-    model: BollardNet,
-    device: torch.device,
-) -> pd.DataFrame:
-    tfm = build_transforms(train=False, img_size=cfg.classifier.img_size)
-    ds = BollardCropsDatasetWithIndex(df, str(img_root), tfm, expand=cfg.classifier.expand)
-
-    loader_kwargs = {
-        "num_workers": cfg.classifier.num_workers,
-        "pin_memory": device.type == "cuda",
-        "generator": make_torch_generator(cfg.seed, "analyze_loader"),
-    }
-    if cfg.classifier.num_workers > 0:
-        loader_kwargs["worker_init_fn"] = seed_worker
-
-    loader = DataLoader(
-        ds,
-        batch_size=cfg.classifier.batch_size,
-        shuffle=False,
-        **loader_kwargs,
+from bollards.pipelines.analyze.classifier import run_classifier as _run_classifier
+from bollards.pipelines.analyze.detector import run_detector as _run_detector
+from bollards.pipelines.analyze.gallery import save_gallery as _save_gallery
+from bollards.pipelines.analyze.images import draw_boxes as _draw_boxes, make_color_map as _make_color_map
+from bollards.pipelines.analyze.io import (
+    build_report_section as _build_report_section,
+    relative_paths as _relative_paths,
+    render_table as _render_table,
+    save_csv as _save_csv,
+    save_json as _save_json,
+)
+from bollards.pipelines.analyze.mappings import (
+    build_country_mappings as _build_country_mappings,
+    build_region_map,
+    class_name as _class_name,
+    maybe_add_region_by_country as _maybe_add_region_by_country,
+    prepare_golden_df_for_classifier as _prepare_golden_df_for_classifier,
+)
+from bollards.pipelines.analyze.metrics import (
+    calc_bbox_area_aspect as _calc_bbox_area_aspect,
+    calc_crop_area_aspect as _calc_crop_area_aspect,
+    compute_metrics as _compute_metrics,
+    confusion_pairs as _confusion_pairs,
+    dataset_summary as _dataset_summary,
+    group_accuracy as _group_accuracy,
+    top_bottom as _top_bottom,
+    value_counts as _value_counts,
+)
+from bollards.pipelines.analyze.plots import plot_hist as _plot_hist
+from bollards.pipelines.common import load_classifier, resolve_device, setup_logger as _setup_logger
+from bollards.utils.seeding import make_python_rng, seed_everything
+
+
+def setup_logger(log_path: Path):
+    return _setup_logger("analyze_run", log_path)
+
+
+def _build_region_map(cfg: AnalyzeRunConfig, golden_df: pd.DataFrame | None):
+    return build_region_map(region_map_json=cfg.data.region_map_json, golden_df=golden_df)
+
+
+def _load_classifier(cfg: AnalyzeRunConfig, device, logger):
+    return load_classifier(
+        checkpoint_path=cfg.classifier.checkpoint_path,
+        device=device,
+        logger=logger,
     )
-
-    records = []
-    for batch in tqdm(loader, desc="classify", leave=False, dynamic_ncols=True):
-        images = batch["image"].to(device, non_blocking=True)
-        meta = batch["meta"].to(device, non_blocking=True)
-        labels = batch["label"].to(device, non_blocking=True)
-        indices = batch["index"].cpu().numpy().tolist()
-
-        with torch.no_grad():
-            logits = model(images, meta)
-            probs = torch.softmax(logits, dim=1)
-
-        top5 = torch.topk(probs, k=min(5, probs.size(1)), dim=1).indices.cpu().numpy()
-        top1 = probs.argmax(dim=1).cpu().numpy()
-        top1_conf = probs.max(dim=1).values.cpu().numpy()
-
-        for i, idx in enumerate(indices):
-            row = df.iloc[int(idx)]
-            true_id = int(labels[i].item())
-            pred_id = int(top1[i])
-            true_name = id_to_country[true_id] if id_to_country and true_id < len(id_to_country) else str(true_id)
-            pred_name = id_to_country[pred_id] if id_to_country and pred_id < len(id_to_country) else str(pred_id)
-
-            top5_ids = [int(v) for v in top5[i]]
-            top5_names = [
-                id_to_country[v] if id_to_country and v < len(id_to_country) else str(v)
-                for v in top5_ids
-            ]
-
-            true_region = region_map.get(true_name) if region_map else None
-            pred_region = region_map.get(pred_name) if region_map else None
-            top5_regions = [region_map.get(name) for name in top5_names] if region_map else []
-
-            correct_top1 = pred_id == true_id
-            correct_top5 = true_id in top5_ids
-            correct_region_top1 = bool(true_region and pred_region and true_region == pred_region)
-            correct_region_top5 = bool(true_region and top5_regions and true_region in top5_regions)
-
-            records.append({
-                "image_path": str(row[PATH_COL]) if PATH_COL in row else "",
-                "x1": float(row.get("x1", 0.0)),
-                "y1": float(row.get("y1", 0.0)),
-                "x2": float(row.get("x2", 1.0)),
-                "y2": float(row.get("y2", 1.0)),
-                "country_id": true_id,
-                "country": true_name,
-                "pred_id": pred_id,
-                "pred_country": pred_name,
-                "top1_conf": float(top1_conf[i]),
-                "top5_ids": json.dumps(top5_ids),
-                "top5_countries": json.dumps(top5_names),
-                "correct_top1": bool(correct_top1),
-                "correct_top5": bool(correct_top5),
-                "region": true_region,
-                "pred_region": pred_region,
-                "correct_region_top1": bool(correct_region_top1),
-                "correct_region_top5": bool(correct_region_top5),
-            })
-
-    return pd.DataFrame(records)
-
-
-def _compute_metrics(df: pd.DataFrame) -> dict[str, Any]:
-    if df.empty:
-        return {}
-    total = len(df)
-    top1 = float(df["correct_top1"].mean()) if "correct_top1" in df else 0.0
-    top5 = float(df["correct_top5"].mean()) if "correct_top5" in df else 0.0
-    metrics = {
-        "samples": int(total),
-        "top1_country": top1,
-        "top5_country": top5,
-    }
-    if "correct_region_top1" in df:
-        region_df = df[df["region"].notna()].copy() if "region" in df else df
-        if not region_df.empty:
-            metrics["top1_region"] = float(region_df["correct_region_top1"].mean())
-            metrics["top5_region"] = float(region_df["correct_region_top5"].mean())
-    return metrics
-
-
-def _group_accuracy(df: pd.DataFrame, group_col: str, min_support: int) -> pd.DataFrame:
-    if group_col not in df.columns:
-        return pd.DataFrame()
-    grouped = df[df[group_col].notna()].groupby(group_col)["correct_top1"].agg(["mean", "count"]).reset_index()
-    grouped = grouped.rename(columns={"mean": "top1", "count": "support"})
-    grouped = grouped[grouped["support"] >= min_support].copy()
-    grouped = grouped.sort_values("top1", ascending=True)
-    return grouped
-
-
-def _confusion_pairs(df: pd.DataFrame, true_col: str, pred_col: str, top_k: int) -> pd.DataFrame:
-    if true_col not in df.columns or pred_col not in df.columns:
-        return pd.DataFrame()
-    mis = df[df[true_col].notna() & df[pred_col].notna() & (df[true_col] != df[pred_col])].copy()
-    if mis.empty:
-        return pd.DataFrame()
-    pairs = mis.groupby([true_col, pred_col]).size().reset_index(name="count")
-    pairs = pairs.sort_values("count", ascending=False).head(top_k)
-    return pairs
-
-
-def _save_gallery(
-    df: pd.DataFrame,
-    img_root: Path,
-    out_dir: Path,
-    title: str,
-    expand: float,
-    max_items: int,
-) -> list[str]:
-    if df.empty:
-        return []
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    font = _load_font(16)
-    rel_paths = []
-
-    for i, row in enumerate(df.head(max_items).itertuples(index=False)):
-        img_path = img_root / getattr(row, "image_path")
-        if not img_path.exists():
-            continue
-        try:
-            with Image.open(img_path) as im:
-                im = im.convert("RGB")
-                crop = _crop_with_bbox(
-                    im,
-                    float(getattr(row, "x1")),
-                    float(getattr(row, "y1")),
-                    float(getattr(row, "x2")),
-                    float(getattr(row, "y2")),
-                    expand=expand,
-                )
-                lines = [
-                    f"T: {getattr(row, 'country', '')}",
-                    f"P: {getattr(row, 'pred_country', '')} ({getattr(row, 'top1_conf', 0.0):.2f})",
-                ]
-                draw = ImageDraw.Draw(crop)
-                text = "\n".join(lines)
-                bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=2)
-                text_h = bbox[3] - bbox[1]
-                pad = 4
-                draw.rectangle((0, 0, crop.size[0], text_h + pad * 2), fill=(0, 0, 0))
-                draw.multiline_text((pad, pad), text, fill=(255, 255, 255), font=font, spacing=2)
-
-                out_path = out_dir / f"{title}_{i:03d}.jpg"
-                crop.save(out_path)
-                rel_paths.append(str(out_path))
-        except Exception:
-            continue
-
-    return rel_paths
-
-
-def _render_table(df: pd.DataFrame) -> str:
-    if df.empty:
-        return "<p>No data.</p>"
-    return df.to_html(index=False, escape=True)
-
-
-def _build_report_section(title: str, body: str) -> str:
-    return f"<section><h2>{title}</h2>{body}</section>"
-
-
-def _relative_paths(paths: list[str], base_dir: Path) -> list[str]:
-    rel = []
-    for p in paths:
-        try:
-            rel.append(str(Path(p).relative_to(base_dir)))
-        except Exception:
-            rel.append(p)
-    return rel
 
 
 def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
@@ -829,9 +167,9 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         main_section += "<h3>Class distribution</h3>" + _render_table(class_counts.head(20))
         main_section += "<h3>Geometry</h3>"
         if (run_dir / "artifacts" / "main" / "bbox_area_hist.png").exists():
-            main_section += f"<img src='artifacts/main/bbox_area_hist.png' width='420'>"
+            main_section += "<img src='artifacts/main/bbox_area_hist.png' width='420'>"
         if (run_dir / "artifacts" / "main" / "bbox_aspect_hist.png").exists():
-            main_section += f"<img src='artifacts/main/bbox_aspect_hist.png' width='420'>"
+            main_section += "<img src='artifacts/main/bbox_aspect_hist.png' width='420'>"
         if not class_counts.empty:
             main_section += "<h3>Geometry by class</h3>"
             for cls_name in class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():
@@ -899,9 +237,9 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         golden_section += "<h3>Class distribution</h3>" + _render_table(class_counts.head(20))
         golden_section += "<h3>Geometry</h3>"
         if (run_dir / "artifacts" / "golden" / "bbox_area_hist.png").exists():
-            golden_section += f"<img src='artifacts/golden/bbox_area_hist.png' width='420'>"
+            golden_section += "<img src='artifacts/golden/bbox_area_hist.png' width='420'>"
         if (run_dir / "artifacts" / "golden" / "bbox_aspect_hist.png").exists():
-            golden_section += f"<img src='artifacts/golden/bbox_aspect_hist.png' width='420'>"
+            golden_section += "<img src='artifacts/golden/bbox_aspect_hist.png' width='420'>"
         if not class_counts.empty:
             golden_section += "<h3>Geometry by class</h3>"
             for cls_name in class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():

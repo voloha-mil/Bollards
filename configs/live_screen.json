@@ -4,21 +4,16 @@
     "region": null
   },
   "detector": {
-    "weights_path": null,
-    "hf_repo": "maco018/YOLOv12_traffic-delineator",
-    "hf_filename": "models/YOLOv12_traffic-delineator.pt",
-    "hf_cache": "./hf_cache",
-    "imgsz": 960,
+    "include": "common_detector.json",
     "conf": 0.10
   },
   "filters": {
     "include": "common_filters.json"
   },
   "classifier": {
+    "include": "common_classifier.json",
     "checkpoint_path": "runs/bollard_country/run_20251226_115214/best.pt",
     "country_map_json": "local_data/meta/country_map.json",
-    "img_size": 224,
-    "expand": 2.0,
     "min_class_conf": 0.02,
     "topk": 3
   },

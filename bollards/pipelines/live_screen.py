@@ -15,79 +15,17 @@ import torch
 from PIL import Image
 
 from bollards.config import LiveScreenConfig
-from bollards.constants import META_COLS
 from bollards.data.labels import load_id_to_country
 from bollards.data.transforms import build_transforms
-from bollards.detect.yolo import load_yolo, run_inference
+from bollards.detect.yolo import run_inference
 from bollards.io.fs import ensure_dir
-from bollards.io.hf import hf_download_model_file
 from bollards.live.visuals import GridItem, GridViewer, render_grid
-from bollards.models.bollard_net import BollardNet, ModelConfig
-from bollards.pipelines.local_dataset import normalize_bbox_xyxy_px
-
-
-def setup_logger(log_path: Path) -> logging.Logger:
-    logger = logging.getLogger("live_screen")
-    logger.setLevel(logging.INFO)
-
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-
-    file_handler = logging.FileHandler(log_path)
-    file_handler.setFormatter(formatter)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-
-    logger.handlers.clear()
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
-    return logger
-
-
-def resolve_device(device_str: str) -> torch.device:
-    if device_str and device_str != "auto":
-        return torch.device(device_str)
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def _load_detector(cfg: LiveScreenConfig, logger: logging.Logger):
-    weights_path = cfg.detector.weights_path
-    if weights_path:
-        weights = Path(weights_path)
-    else:
-        hf_cache = Path(cfg.detector.hf_cache)
-        weights = hf_download_model_file(
-            repo_id=cfg.detector.hf_repo,
-            filename=cfg.detector.hf_filename,
-            cache_dir=hf_cache,
-        )
-    logger.info("Using detector weights: %s", weights)
-    return load_yolo(weights)
-
-
-def _load_classifier(cfg: LiveScreenConfig, device: torch.device, logger: logging.Logger) -> tuple[BollardNet, ModelConfig]:
-    ckpt_path = cfg.classifier.checkpoint_path
-    if not ckpt_path:
-        raise SystemExit("classifier.checkpoint_path is required")
-
-    ckpt = torch.load(ckpt_path, map_location=device)
-    model_cfg_dict = ckpt.get("cfg")
-    if not model_cfg_dict:
-        raise SystemExit("Classifier checkpoint missing cfg metadata")
-
-    model_cfg = ModelConfig(**model_cfg_dict)
-    model_cfg.pretrained = False
-    if model_cfg.meta_dim != len(META_COLS):
-        raise SystemExit(f"model.meta_dim must match META_COLS ({len(META_COLS)})")
-
-    model = BollardNet(model_cfg).to(device)
-    state = ckpt.get("model") or ckpt.get("state_dict")
-    if not state:
-        raise SystemExit("Classifier checkpoint missing model weights")
-    model.load_state_dict(state)
-    model.eval()
-    logger.info("Loaded classifier: %s", ckpt_path)
-    return model, model_cfg
+from bollards.data.bboxes import (
+    bbox_xyxy_norm_to_center,
+    crop_image_from_norm_bbox,
+    normalize_bbox_xyxy_px,
+)
+from bollards.pipelines.common import load_classifier, load_detector, resolve_device, setup_logger
 
 
 def _capture_screen(sct, cfg: LiveScreenConfig) -> Image.Image:
@@ -137,32 +75,9 @@ def _crop_and_meta(img: Image.Image, det: dict[str, float], expand: float) -> tu
     w, h = img.size
     x1n, y1n, x2n, y2n = normalize_bbox_xyxy_px(det["x1"], det["y1"], det["x2"], det["y2"], w, h)
 
-    xc = 0.5 * (x1n + x2n)
-    yc = 0.5 * (y1n + y2n)
-    bw = x2n - x1n
-    bh = y2n - y1n
+    xc, yc, bw, bh = bbox_xyxy_norm_to_center(x1n, y1n, x2n, y2n)
     conf = float(max(0.0, min(1.0, det["conf"])))
-
-    cx = xc
-    cy = yc
-    bw_exp = bw * expand
-    bh_exp = bh * expand
-
-    ex1 = max(0.0, cx - 0.5 * bw_exp)
-    ey1 = max(0.0, cy - 0.5 * bh_exp)
-    ex2 = min(1.0, cx + 0.5 * bw_exp)
-    ey2 = min(1.0, cy + 0.5 * bh_exp)
-
-    px1 = int(round(ex1 * w))
-    py1 = int(round(ey1 * h))
-    px2 = int(round(ex2 * w))
-    py2 = int(round(ey2 * h))
-    if px2 <= px1:
-        px2 = min(w, px1 + 1)
-    if py2 <= py1:
-        py2 = min(h, py1 + 1)
-
-    crop = img.crop((px1, py1, px2, py2))
+    crop = crop_image_from_norm_bbox(img, x1n, y1n, x2n, y2n, expand)
     meta = [xc, yc, bw, bh, conf]
     bbox_norm = [x1n, y1n, x2n, y2n]
     return crop, meta, bbox_norm
@@ -204,7 +119,7 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
     ensure_dir(crops_dir)
 
     log_path = run_dir / "session.log"
-    logger = setup_logger(log_path)
+    logger = setup_logger("live_screen", log_path)
 
     config_path = run_dir / "config.json"
     with config_path.open("w", encoding="utf-8") as f:
@@ -213,8 +128,18 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
     device = resolve_device(cfg.device)
     logger.info("Using device: %s", device)
 
-    detector = _load_detector(cfg, logger)
-    classifier, model_cfg = _load_classifier(cfg, device, logger)
+    detector = load_detector(
+        weights_path=cfg.detector.weights_path,
+        hf_repo=cfg.detector.hf_repo,
+        hf_filename=cfg.detector.hf_filename,
+        hf_cache=cfg.detector.hf_cache,
+        logger=logger,
+    )
+    classifier, model_cfg = load_classifier(
+        checkpoint_path=cfg.classifier.checkpoint_path,
+        device=device,
+        logger=logger,
+    )
     id_to_country = load_id_to_country(cfg.classifier.country_map_json)
 
     transform = build_transforms(train=False, img_size=cfg.classifier.img_size)

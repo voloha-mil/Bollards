@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from bollards.constants import BBOX_COLS, LABEL_COL, META_COLS, PATH_COL
+from bollards.data.bboxes import bbox_xyxy_norm_to_pixels, expand_bbox_xyxy_norm
 
 
 class BollardCropsDataset(Dataset):
@@ -44,26 +45,8 @@ class BollardCropsDataset(Dataset):
 
             x1, y1, x2, y2 = [float(row[c]) for c in BBOX_COLS]
 
-            # Expand bbox around center in normalized coords
-            cx = 0.5 * (x1 + x2)
-            cy = 0.5 * (y1 + y2)
-            bw = (x2 - x1) * self.expand
-            bh = (y2 - y1) * self.expand
-
-            ex1 = max(0.0, cx - 0.5 * bw)
-            ey1 = max(0.0, cy - 0.5 * bh)
-            ex2 = min(1.0, cx + 0.5 * bw)
-            ey2 = min(1.0, cy + 0.5 * bh)
-
-            px1 = int(round(ex1 * w))
-            py1 = int(round(ey1 * h))
-            px2 = int(round(ex2 * w))
-            py2 = int(round(ey2 * h))
-            if px2 <= px1:
-                px2 = min(w, px1 + 1)
-            if py2 <= py1:
-                py2 = min(h, py1 + 1)
-
+            ex1, ey1, ex2, ey2 = expand_bbox_xyxy_norm(x1, y1, x2, y2, self.expand)
+            px1, py1, px2, py2 = bbox_xyxy_norm_to_pixels(ex1, ey1, ex2, ey2, w, h)
             crop = img.crop((px1, py1, px2, py2))
 
         crop = self.tfm(crop)

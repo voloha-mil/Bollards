@@ -15,7 +15,7 @@ from bollards.detect.yolo import extract_detection_payload, load_yolo, run_infer
 from bollards.io.csv import append_csv_row, append_processed_ids, ensure_csv_header, load_processed_ids
 from bollards.io.fs import ensure_dir
 from bollards.io.hf import hf_download_model_file
-from osv5m import (
+from bollards.osv5m import (
     HF_MODEL_FILENAME,
     HF_MODEL_REPO,
     META_FIELDS,

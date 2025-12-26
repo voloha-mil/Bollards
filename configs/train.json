@@ -46,7 +46,7 @@
   "logging": {
     "out_dir": "runs/bollard_country",
     "tb_dir": null,
-    "run_name": "new_golden_metadata",
+    "run_name": "fixed_seeds",
     "log_images": 4,
     "log_image_every": 1,
     "tb_font_size": 18
