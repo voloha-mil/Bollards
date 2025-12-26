@@ -215,10 +215,18 @@ def run_training(cfg: TrainConfig) -> None:
     model = BollardNet(cfg.model).to(device)
     print(f"[info] model config: {asdict(cfg.model)}")
 
-    if cfg.optim.focal_gamma > 0 or cfg.optim.focal_alpha is not None:
+    focal_alpha = cfg.optim.focal_alpha
+    if (cfg.optim.focal_gamma > 0 or focal_alpha is not None) and focal_alpha is None:
+        class_counts = train_df[LABEL_COL].value_counts().sort_index()
+        inv = 1.0 / class_counts
+        inv = inv / inv.mean()
+        focal_alpha = inv.tolist()
+        print("[info] computed focal_alpha from train class frequencies.")
+
+    if cfg.optim.focal_gamma > 0 or focal_alpha is not None:
         criterion = FocalLoss(
             gamma=cfg.optim.focal_gamma,
-            alpha=cfg.optim.focal_alpha,
+            alpha=focal_alpha,
             label_smoothing=cfg.optim.label_smoothing,
         )
     else:
