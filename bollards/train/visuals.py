@@ -29,6 +29,79 @@ def _load_font(font_size: int) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+def _text_bbox(
+    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont
+) -> Tuple[int, int, int, int]:
+    if hasattr(draw, "textbbox"):
+        return draw.textbbox((0, 0), text, font=font)
+    width, height = font.getsize(text)
+    return (0, 0, width, height)
+
+
+def _text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -> float:
+    if hasattr(draw, "textlength"):
+        return float(draw.textlength(text, font=font))
+    if hasattr(font, "getlength"):
+        return float(font.getlength(text))
+    bbox = _text_bbox(draw, text, font)
+    return float(bbox[2] - bbox[0])
+
+
+def _line_height(draw: ImageDraw.ImageDraw, font: ImageFont.ImageFont) -> int:
+    bbox = _text_bbox(draw, "Ag", font)
+    return max(1, int(bbox[3] - bbox[1]))
+
+
+def _split_long_word(
+    draw: ImageDraw.ImageDraw, word: str, font: ImageFont.ImageFont, max_width: int
+) -> List[str]:
+    parts = []
+    current = ""
+    for ch in word:
+        trial = f"{current}{ch}"
+        if not current or _text_width(draw, trial, font) <= max_width:
+            current = trial
+        else:
+            parts.append(current)
+            current = ch
+    if current:
+        parts.append(current)
+    return parts
+
+
+def _wrap_text(
+    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int
+) -> List[str]:
+    if not text:
+        return [""]
+    words = text.split()
+    if not words:
+        return [text]
+
+    lines: List[str] = []
+    current = ""
+    for word in words:
+        trial = f"{current} {word}".strip()
+        if not current or _text_width(draw, trial, font) <= max_width:
+            current = trial
+            continue
+
+        lines.append(current)
+        current = ""
+
+        if _text_width(draw, word, font) <= max_width:
+            current = word
+        else:
+            parts = _split_long_word(draw, word, font, max_width)
+            lines.extend(parts[:-1])
+            current = parts[-1] if parts else ""
+
+    if current:
+        lines.append(current)
+
+    return lines
+
+
 @torch.no_grad()
 def annotate_grid_images(
     images_norm: torch.Tensor,
@@ -57,6 +130,15 @@ def annotate_grid_images(
     font = _load_font(font_size)
     annotated = []
     lines = ["idx\ttrue\tpred\tp(true)\t(topk)"]
+    pil_images = []
+    text_blocks: List[List[str]] = []
+
+    pad_x = 6
+    pad_y = 4
+    line_gap = 2
+    measure_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    line_h = _line_height(measure_draw, font)
+    max_lines = 1
 
     for i in range(n):
         img = denormalize(images_norm[i]).cpu()
@@ -76,14 +158,33 @@ def annotate_grid_images(
             topk_str.append(f"{name}:{float(topv[i, k].item()):.2f}")
 
         draw = ImageDraw.Draw(pil)
-        text = f"T:{true_name}  P:{pred_name}  p(T)={p_true:.2f}\n" + "  ".join(topk_str)
+        base_lines = [f"T:{true_name}  P:{pred_name}  p(T)={p_true:.2f}"]
+        if topk_str:
+            base_lines.append("  ".join(topk_str))
 
-        bg_h = int(font_size * 2.8)
-        draw.rectangle((0, 0, pil.size[0], bg_h), fill=(0, 0, 0))
-        draw.multiline_text((6, 4), text, fill=(255, 255, 255), font=font, spacing=2)
+        max_width = max(1, pil.size[0] - pad_x * 2)
+        wrapped_lines: List[str] = []
+        for base in base_lines:
+            wrapped_lines.extend(_wrap_text(draw, base, font, max_width))
+        if not wrapped_lines:
+            wrapped_lines = [""]
 
-        annotated.append(transforms.ToTensor()(pil))
+        pil_images.append(pil)
+        text_blocks.append(wrapped_lines)
+        max_lines = max(max_lines, len(wrapped_lines))
         lines.append(f"{i}\t{true_name}\t{pred_name}\t{p_true:.3f}\t{' | '.join(topk_str)}")
+
+    text_h = pad_y * 2 + line_h * max_lines + line_gap * (max_lines - 1)
+    for pil, wrapped_lines in zip(pil_images, text_blocks):
+        annotated_pil = Image.new("RGB", (pil.size[0], pil.size[1] + text_h), color=(0, 0, 0))
+        annotated_pil.paste(pil, (0, text_h))
+        draw = ImageDraw.Draw(annotated_pil)
+        y = pad_y
+        for line in wrapped_lines:
+            draw.text((pad_x, y), line, fill=(255, 255, 255), font=font)
+            y += line_h + line_gap
+
+        annotated.append(transforms.ToTensor()(annotated_pil))
 
     grid = make_grid(torch.stack(annotated, dim=0), nrow=4, padding=2)
     table = "\n".join(lines)

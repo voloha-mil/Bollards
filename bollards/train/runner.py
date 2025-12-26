@@ -17,6 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 from bollards.config import TrainConfig
 from bollards.constants import BBOX_COLS, LABEL_COL, META_COLS, PATH_COL
 from bollards.data.country_names import golden_country_to_code
+from bollards.data.bboxes import compute_avg_bbox_wh
 from bollards.data.datasets import BollardCropsDataset
 from bollards.data.labels import load_id_to_country
 from bollards.data.samplers import make_sampler
@@ -78,7 +79,16 @@ def _compute_sqrt_inv_class_weights(labels: pd.Series, num_classes: int) -> list
     return weights
 
 
-def _prepare_golden_df(golden_df: pd.DataFrame, country_to_id: Dict[str, int]) -> pd.DataFrame:
+def _prepare_golden_df(
+    golden_df: pd.DataFrame,
+    country_to_id: Dict[str, int],
+    *,
+    avg_bbox_w: float,
+    avg_bbox_h: float,
+) -> pd.DataFrame:
+    if avg_bbox_w is None or avg_bbox_h is None:
+        raise ValueError("Golden dataset requires explicit avg_bbox_w/avg_bbox_h values.")
+
     required = [PATH_COL, "country"]
     missing = [c for c in required if c not in golden_df.columns]
     if missing:
@@ -103,7 +113,13 @@ def _prepare_golden_df(golden_df: pd.DataFrame, country_to_id: Dict[str, int]) -
     df[LABEL_COL] = df[LABEL_COL].astype(int)
 
     bbox_defaults = {"x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0}
-    meta_defaults = {"x_center": 0.5, "y_center": 0.5, "w": 1.0, "h": 1.0, "conf": 1.0}
+    meta_defaults = {
+        "x_center": 0.5,
+        "y_center": 0.5,
+        "w": avg_bbox_w,
+        "h": avg_bbox_h,
+        "conf": 1.0,
+    }
     for col in BBOX_COLS:
         df[col] = bbox_defaults[col]
     for col in META_COLS:
@@ -111,6 +127,38 @@ def _prepare_golden_df(golden_df: pd.DataFrame, country_to_id: Dict[str, int]) -
 
     df = df.drop(columns=["country_code"])
     return df
+
+
+def _sample_diverse_rows(df: pd.DataFrame, n: int, label_col: str, seed: int = 42) -> pd.DataFrame:
+    if n <= 0 or df.empty:
+        return df.head(0).copy()
+    if n >= len(df):
+        return df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+    if label_col not in df.columns:
+        return df.sample(n=n, random_state=seed).reset_index(drop=True)
+
+    labels = df[label_col].dropna().unique().tolist()
+    if not labels:
+        return df.sample(n=n, random_state=seed).reset_index(drop=True)
+
+    if n <= len(labels):
+        chosen = pd.Series(labels).sample(n=n, random_state=seed).tolist()
+        sampled = (
+            df[df[label_col].isin(chosen)]
+            .groupby(label_col, group_keys=False)
+            .sample(n=1, random_state=seed)
+        )
+        return sampled.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+    base = df.groupby(label_col, group_keys=False).sample(n=1, random_state=seed)
+    remaining = n - len(base)
+    if remaining > 0:
+        rest = df.drop(index=base.index)
+        if not rest.empty:
+            extra = rest.sample(n=min(remaining, len(rest)), random_state=seed)
+            base = pd.concat([base, extra], ignore_index=True)
+
+    return base.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
 
 def run_training(cfg: TrainConfig) -> None:
@@ -149,6 +197,7 @@ def run_training(cfg: TrainConfig) -> None:
     if cfg.data.max_val_samples > 0 and len(val_df) > cfg.data.max_val_samples:
         val_df = val_df.sample(n=cfg.data.max_val_samples, random_state=42).reset_index(drop=True)
     id_to_country, country_to_id = _build_country_mappings(id_to_country, train_df, val_df)
+    avg_bbox_w, avg_bbox_h = compute_avg_bbox_wh(train_df, label="Train")
 
     data_max_label = int(max(train_df[LABEL_COL].max(), val_df[LABEL_COL].max()))
     if id_to_country is not None:
@@ -214,7 +263,12 @@ def run_training(cfg: TrainConfig) -> None:
                 "Provide data.country_map_json or ensure train/val CSVs include country."
             )
         golden_df = pd.read_csv(cfg.data.golden_csv)
-        golden_df = _prepare_golden_df(golden_df, country_to_id)
+        golden_df = _prepare_golden_df(
+            golden_df,
+            country_to_id,
+            avg_bbox_w=avg_bbox_w,
+            avg_bbox_h=avg_bbox_h,
+        )
         golden_root = cfg.data.golden_img_root or os.path.dirname(cfg.data.golden_csv) or "."
         golden_ds = BollardCropsDataset(golden_df, golden_root, val_tfm, expand=cfg.data.expand)
         golden_loader = DataLoader(
@@ -224,7 +278,21 @@ def run_training(cfg: TrainConfig) -> None:
             pin_memory=pin_memory,
             **_loader_kwargs(golden_workers),
         )
-        fixed_golden_batch = next(iter(golden_loader))
+        if cfg.logging.log_images > 0:
+            vis_count = min(cfg.logging.log_images, len(golden_df))
+            golden_vis_df = _sample_diverse_rows(golden_df, vis_count, LABEL_COL, seed=42)
+            if not golden_vis_df.empty:
+                golden_vis_ds = BollardCropsDataset(
+                    golden_vis_df, golden_root, val_tfm, expand=cfg.data.expand
+                )
+                golden_vis_loader = DataLoader(
+                    golden_vis_ds,
+                    batch_size=min(cfg.data.batch_size, len(golden_vis_df)),
+                    shuffle=False,
+                    pin_memory=pin_memory,
+                    **_loader_kwargs(golden_workers),
+                )
+                fixed_golden_batch = next(iter(golden_vis_loader))
 
     fixed_val_batch = next(iter(val_loader))
 

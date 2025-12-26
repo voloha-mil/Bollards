@@ -23,6 +23,7 @@ from tqdm import tqdm
 from bollards.config import AnalyzeRunConfig
 from bollards.constants import BBOX_COLS, LABEL_COL, META_COLS, PATH_COL
 from bollards.data.country_names import golden_country_to_code
+from bollards.data.bboxes import compute_avg_bbox_wh
 from bollards.data.datasets import BollardCropsDataset
 from bollards.data.labels import load_id_to_country
 from bollards.data.transforms import build_transforms
@@ -160,7 +161,16 @@ def _build_country_mappings(
     return id_to_country, country_to_id
 
 
-def _prepare_golden_df_for_classifier(golden_df: pd.DataFrame, country_to_id: Dict[str, int]) -> pd.DataFrame:
+def _prepare_golden_df_for_classifier(
+    golden_df: pd.DataFrame,
+    country_to_id: Dict[str, int],
+    *,
+    avg_bbox_w: float,
+    avg_bbox_h: float,
+) -> pd.DataFrame:
+    if avg_bbox_w is None or avg_bbox_h is None:
+        raise ValueError("Golden dataset requires explicit avg_bbox_w/avg_bbox_h values.")
+
     required = [PATH_COL, "country"]
     missing = [c for c in required if c not in golden_df.columns]
     if missing:
@@ -185,7 +195,13 @@ def _prepare_golden_df_for_classifier(golden_df: pd.DataFrame, country_to_id: Di
     df[LABEL_COL] = df[LABEL_COL].astype(int)
 
     bbox_defaults = {"x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0}
-    meta_defaults = {"x_center": 0.5, "y_center": 0.5, "w": 1.0, "h": 1.0, "conf": 1.0}
+    meta_defaults = {
+        "x_center": 0.5,
+        "y_center": 0.5,
+        "w": avg_bbox_w,
+        "h": avg_bbox_h,
+        "conf": 1.0,
+    }
     for col in BBOX_COLS:
         df[col] = bbox_defaults[col]
     for col in META_COLS:
@@ -993,7 +1009,13 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         classifier_model, _ = _load_classifier(cfg, device, logger)
         # Golden classifier eval
         if golden_df is not None and not golden_df.empty:
-            golden_eval_df = _prepare_golden_df_for_classifier(golden_df, country_to_id)
+            avg_bbox_w, avg_bbox_h = compute_avg_bbox_wh(main_df, label="Main")
+            golden_eval_df = _prepare_golden_df_for_classifier(
+                golden_df,
+                country_to_id,
+                avg_bbox_w=avg_bbox_w,
+                avg_bbox_h=avg_bbox_h,
+            )
             golden_preds = _run_classifier(
                 cfg,
                 golden_eval_df,
