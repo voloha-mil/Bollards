@@ -17,6 +17,8 @@ class DataConfig:
     val_csv: str
     img_root: str
     country_map_json: Optional[str] = None
+    golden_csv: Optional[str] = None
+    golden_img_root: Optional[str] = None
     img_size: int = 224
     batch_size: int = 64
     num_workers: int = 4
@@ -30,6 +32,8 @@ class DataConfig:
             val_csv=data["val_csv"],
             img_root=data["img_root"],
             country_map_json=data.get("country_map_json"),
+            golden_csv=data.get("golden_csv"),
+            golden_img_root=data.get("golden_img_root"),
             img_size=int(data.get("img_size", 224)),
             batch_size=int(data.get("batch_size", 64)),
             num_workers=int(data.get("num_workers", 4)),

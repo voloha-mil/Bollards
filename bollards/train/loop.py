@@ -6,13 +6,18 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
-def evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> Tuple[float, float]:
+def evaluate(
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    desc: str = "val",
+) -> Tuple[float, float]:
     model.eval()
     correct1 = 0
     correct5 = 0
     total = 0
 
-    pbar = tqdm(loader, desc="val", leave=False, dynamic_ncols=True)
+    pbar = tqdm(loader, desc=desc, leave=False, dynamic_ncols=True)
     for batch in pbar:
         images = batch["image"].to(device, non_blocking=True)
         meta = batch["meta"].to(device, non_blocking=True)

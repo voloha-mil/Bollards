@@ -4,6 +4,8 @@
     "val_csv": "local_data/meta/val.csv",
     "img_root": "local_data",
     "country_map_json": "local_data/meta/country_map.json",
+    "golden_csv": "golden_dataset/labels.csv",
+    "golden_img_root": "golden_dataset",
     "img_size": 224,
     "batch_size": 64,
     "num_workers": 4,
