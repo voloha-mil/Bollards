@@ -24,7 +24,6 @@ logs/
 hf_cache/
 work_tmp/
 filtered_dataset*/
-golden_dataset/
 misc_dataset/
 local_data/
 *.pt
