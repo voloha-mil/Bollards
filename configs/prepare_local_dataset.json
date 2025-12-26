@@ -5,7 +5,7 @@
   "val_split": "test",
   "out_dir": "./local_data",
   "num_boxes": 100000,
-  "min_country_count": 10,
+  "min_country_count": 20,
   "include": "common_filters.json",
   "sample_strategy": "random",
   "seed": 42,

@@ -385,32 +385,38 @@ def run_training(cfg: TrainConfig) -> None:
             conf_weight_min=cfg.optim.conf_weight_min,
         )
 
-        val_top1, val_top5 = evaluate(model, val_loader, device, desc="val")
+        val_top1, val_top5, val_map = evaluate(model, val_loader, device, desc="val")
         golden_top1 = None
         golden_top5 = None
+        golden_map = None
         if golden_loader is not None:
-            golden_top1, golden_top5 = evaluate(model, golden_loader, device, desc="golden")
+            golden_top1, golden_top5, golden_map = evaluate(
+                model, golden_loader, device, desc="golden"
+            )
         scheduler.step()
 
         lrs = [pg["lr"] for pg in optimizer.param_groups]
         if golden_top1 is None:
             print(
                 f"[epoch {epoch:02d}] loss={train_loss:.4f} val_top1={val_top1:.4f} "
-                f"val_top5={val_top5:.4f} lr={lrs}"
+                f"val_top5={val_top5:.4f} val_map={val_map:.4f} lr={lrs}"
             )
         else:
             print(
                 f"[epoch {epoch:02d}] loss={train_loss:.4f} val_top1={val_top1:.4f} "
-                f"val_top5={val_top5:.4f} golden_top1={golden_top1:.4f} "
-                f"golden_top5={golden_top5:.4f} lr={lrs}"
+                f"val_top5={val_top5:.4f} val_map={val_map:.4f} "
+                f"golden_top1={golden_top1:.4f} golden_top5={golden_top5:.4f} "
+                f"golden_map={golden_map:.4f} lr={lrs}"
             )
 
         writer.add_scalar("train/loss", train_loss, epoch)
         writer.add_scalar("val/top1", val_top1, epoch)
         writer.add_scalar("val/top5", val_top5, epoch)
+        writer.add_scalar("val/map", val_map, epoch)
         if golden_top1 is not None:
             writer.add_scalar("golden/top1", golden_top1, epoch)
             writer.add_scalar("golden/top5", golden_top5, epoch)
+            writer.add_scalar("golden/map", golden_map, epoch)
         writer.add_scalar("lr/backbone", lrs[0], epoch)
         writer.add_scalar("lr/head", lrs[1], epoch)
 
@@ -471,8 +477,10 @@ def run_training(cfg: TrainConfig) -> None:
                 "cfg": asdict(cfg.model),
                 "val_top1": val_top1,
                 "val_top5": val_top5,
+                "val_map": val_map,
                 "golden_top1": golden_top1,
                 "golden_top5": golden_top5,
+                "golden_map": golden_map,
             },
             last_path,
         )
@@ -487,8 +495,10 @@ def run_training(cfg: TrainConfig) -> None:
                     "cfg": asdict(cfg.model),
                     "val_top1": val_top1,
                     "val_top5": val_top5,
+                    "val_map": val_map,
                     "golden_top1": golden_top1,
                     "golden_top5": golden_top5,
+                    "golden_map": golden_map,
                 },
                 best_path,
             )
