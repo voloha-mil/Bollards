@@ -14,7 +14,9 @@
     "prefetch_factor": 1,
     "persistent_workers": false,
     "balanced_sampler": false,
-    "expand": 2.0
+    "expand": 2.0,
+    "max_train_samples": 100000,
+    "max_val_samples": 500
   },
   "model": {
     "backbone_name": "efficientnet_b1",

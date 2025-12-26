@@ -127,6 +127,10 @@ def run_training(cfg: TrainConfig) -> None:
 
     train_df = pd.read_csv(cfg.data.train_csv)
     val_df = pd.read_csv(cfg.data.val_csv)
+    if cfg.data.max_train_samples > 0 and len(train_df) > cfg.data.max_train_samples:
+        train_df = train_df.sample(n=cfg.data.max_train_samples, random_state=42).reset_index(drop=True)
+    if cfg.data.max_val_samples > 0 and len(val_df) > cfg.data.max_val_samples:
+        val_df = val_df.sample(n=cfg.data.max_val_samples, random_state=42).reset_index(drop=True)
     id_to_country, country_to_id = _build_country_mappings(id_to_country, train_df, val_df)
 
     data_max_label = int(max(train_df[LABEL_COL].max(), val_df[LABEL_COL].max()))

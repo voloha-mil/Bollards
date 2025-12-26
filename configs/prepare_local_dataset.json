@@ -1,13 +1,13 @@
 {
   "bucket": "geo-bollard-ml",
   "root_prefix": "runs/osv5m_cpu",
-  "split": "test",
+  "train_split": "train",
+  "val_split": "test",
   "out_dir": "./local_data",
   "num_boxes": 100000,
   "min_country_count": 10,
   "include": "common_filters.json",
   "sample_strategy": "random",
-  "val_ratio": 0.1,
   "seed": 42,
   "download_annotated": false
 }

@@ -28,6 +28,8 @@ class DataConfig:
     persistent_workers: bool = False
     balanced_sampler: bool = False
     expand: float = 2.0
+    max_train_samples: int = 0
+    max_val_samples: int = 0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DataConfig":
@@ -47,6 +49,8 @@ class DataConfig:
             persistent_workers=bool(data.get("persistent_workers", False)),
             balanced_sampler=bool(data.get("balanced_sampler", False)),
             expand=float(data.get("expand", 2.0)),
+            max_train_samples=int(data.get("max_train_samples", 0)),
+            max_val_samples=int(data.get("max_val_samples", 0)),
         )
 
 
@@ -175,7 +179,8 @@ class MinerConfig:
 class PrepareLocalDatasetConfig:
     bucket: str = "geo-bollard-ml"
     root_prefix: str = "runs/osv5m_cpu"
-    split: str = "test"
+    train_split: str = "train"
+    val_split: str = "test"
     out_dir: str = "./local_data"
     num_boxes: int = 1000
     max_boxes_per_image: int = 1
@@ -185,16 +190,19 @@ class PrepareLocalDatasetConfig:
     min_box_h_px: float = 0.0
     min_country_count: int = 0
     sample_strategy: str = "random"
-    val_ratio: float = 0.1
     seed: int = 42
     download_annotated: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PrepareLocalDatasetConfig":
+        train_split = data.get("train_split")
+        if not train_split:
+            train_split = data.get("split", "train")
         return cls(
             bucket=str(data.get("bucket", "geo-bollard-ml")),
             root_prefix=str(data.get("root_prefix", "runs/osv5m_cpu")),
-            split=str(data.get("split", "test")),
+            train_split=str(train_split),
+            val_split=str(data.get("val_split", "test")),
             out_dir=str(data.get("out_dir", "./local_data")),
             num_boxes=int(data.get("num_boxes", 1000)),
             max_boxes_per_image=int(data.get("max_boxes_per_image", 1)),
@@ -204,7 +212,6 @@ class PrepareLocalDatasetConfig:
             min_box_h_px=float(data.get("min_box_h_px", 0.0)),
             min_country_count=int(data.get("min_country_count", 0)),
             sample_strategy=str(data.get("sample_strategy", "random")),
-            val_ratio=float(data.get("val_ratio", 0.1)),
             seed=int(data.get("seed", 42)),
             download_annotated=bool(data.get("download_annotated", False)),
         )
