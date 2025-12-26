@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 from dataclasses import asdict
@@ -60,6 +61,21 @@ def _build_country_mappings(
         id_to_country[idx] = name
 
     return id_to_country, country_to_id
+
+
+def _compute_sqrt_inv_class_weights(labels: pd.Series, num_classes: int) -> list[float]:
+    counts = labels.value_counts().reindex(range(num_classes), fill_value=0).sort_index()
+    weights = []
+    for c in counts.tolist():
+        if c > 0:
+            weights.append(1.0 / math.sqrt(float(c)))
+        else:
+            weights.append(0.0)
+    nonzero = [w for w in weights if w > 0]
+    if nonzero:
+        mean = sum(nonzero) / len(nonzero)
+        weights = [w / mean if w > 0 else 0.0 for w in weights]
+    return weights
 
 
 def _prepare_golden_df(golden_df: pd.DataFrame, country_to_id: Dict[str, int]) -> pd.DataFrame:
@@ -215,13 +231,15 @@ def run_training(cfg: TrainConfig) -> None:
     model = BollardNet(cfg.model).to(device)
     print(f"[info] model config: {asdict(cfg.model)}")
 
+    class_weights = None
+    if cfg.optim.class_weighting:
+        class_weights = _compute_sqrt_inv_class_weights(train_df[LABEL_COL], required_classes)
+        print("[info] computed sqrt-inverse class weights from train labels.")
+
     focal_alpha = cfg.optim.focal_alpha
-    if (cfg.optim.focal_gamma > 0 or focal_alpha is not None) and focal_alpha is None:
-        class_counts = train_df[LABEL_COL].value_counts().sort_index()
-        inv = 1.0 / class_counts
-        inv = inv / inv.mean()
-        focal_alpha = inv.tolist()
-        print("[info] computed focal_alpha from train class frequencies.")
+    if (cfg.optim.focal_gamma > 0 or focal_alpha is not None) and focal_alpha is None and class_weights is not None:
+        focal_alpha = class_weights
+        print("[info] computed focal_alpha from sqrt-inverse class weights.")
 
     if cfg.optim.focal_gamma > 0 or focal_alpha is not None:
         criterion = FocalLoss(
@@ -230,7 +248,14 @@ def run_training(cfg: TrainConfig) -> None:
             label_smoothing=cfg.optim.label_smoothing,
         )
     else:
-        criterion = nn.CrossEntropyLoss(label_smoothing=cfg.optim.label_smoothing, reduction="none")
+        weight_tensor = None
+        if class_weights is not None:
+            weight_tensor = torch.tensor(class_weights, dtype=torch.float32, device=device)
+        criterion = nn.CrossEntropyLoss(
+            label_smoothing=cfg.optim.label_smoothing,
+            weight=weight_tensor,
+            reduction="none",
+        )
 
     def param_groups(m: BollardNet):
         backbone_params = [p for p in m.backbone.parameters() if p.requires_grad]

@@ -61,6 +61,7 @@ class OptimConfig:
     weight_decay: float = 1e-4
     label_smoothing: float = 0.05
     conf_weight_min: float = 0.2
+    class_weighting: bool = True
     focal_gamma: float = 0.0
     focal_alpha: Optional[float | list[float]] = None
 
@@ -77,6 +78,7 @@ class OptimConfig:
             weight_decay=float(data.get("weight_decay", 1e-4)),
             label_smoothing=float(data.get("label_smoothing", 0.05)),
             conf_weight_min=float(data.get("conf_weight_min", 0.2)),
+            class_weighting=bool(data.get("class_weighting", True)),
             focal_gamma=float(data.get("focal_gamma", 0.0)),
             focal_alpha=focal_alpha,
         )
