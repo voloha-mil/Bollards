@@ -1,0 +1,3 @@
+-r requirements.txt
+mss==9.0.1
+pynput==1.7.7

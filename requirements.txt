@@ -5,8 +5,8 @@ huggingface_hub==1.2.3
 pillow==12.0.0
 pandas==2.3.3
 tqdm==4.67.1
-numpy
-timm
-boto3
-tensorboard
-tqdm
+numpy==2.2.6
+timm==1.0.22
+boto3==1.42.16
+tensorboard==2.20.0
+tqdm==4.67.1

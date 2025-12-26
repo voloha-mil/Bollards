@@ -5,9 +5,22 @@ http://huggingface.co/maco018/YOLOv12_traffic-delineator
 ### Quickstart
 
 - Configs live in `configs/` (JSON). Override with `--set section.key=value`.
+- Configs can share blocks via `"include": "other.json"` (path relative to the config).
 - Mining: `python scripts/mine_osv5m.py --config configs/mine_osv5m.json --set target=500`
 - Prepare local dataset: `python scripts/prepare_local_dataset.py --config configs/prepare_local_dataset.json --set num_boxes=2000`
 - Training: `python scripts/train.py --config configs/train.json --set data.batch_size=128`
+- Live screen: `python scripts/live_screen.py --config configs/live_screen.json --set classifier.checkpoint_path=runs/bollard_country/<run>/best.pt`
+
+### Live screen classification
+
+- Install extra deps: `pip install -r requirements.live.txt`
+- Capture is driven by `trigger.mode`:
+  - `hotkey` uses `trigger.hotkey` (default `<ctrl>+<shift>+b`).
+  - `stdin` waits for Enter; type `quit` to exit.
+- Screen region: set `capture.monitor_index` and optional `capture.region` (`left`, `top`, `width`, `height`).
+- Bounding-box filters match `configs/prepare_local_dataset.json`: `filters.min_conf`, `filters.min_box_w_px`, `filters.min_box_h_px`, `filters.cls_allow`, `filters.max_boxes_per_image`.
+- Outputs go to `runs/live_screen/run_*/` with `crops/`, `grid.jpg`, `session.jsonl`, and `summary.json`.
+- `output.viewer_enabled=true` shows a live grid window; disable for headless runs.
 
 ### Layout
 

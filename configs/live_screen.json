@@ -1,0 +1,41 @@
+{
+  "capture": {
+    "monitor_index": 1,
+    "region": null
+  },
+  "detector": {
+    "weights_path": null,
+    "hf_repo": "maco018/YOLOv12_traffic-delineator",
+    "hf_filename": "models/YOLOv12_traffic-delineator.pt",
+    "hf_cache": "./hf_cache",
+    "imgsz": 960,
+    "conf": 0.25
+  },
+  "filters": {
+    "include": "common_filters.json"
+  },
+  "classifier": {
+    "checkpoint_path": "runs/bollard_country/REPLACE_ME/best.pt",
+    "country_map_json": "local_data/meta/country_map.json",
+    "img_size": 224,
+    "expand": 2.0,
+    "min_class_conf": 0.6,
+    "topk": 3
+  },
+  "output": {
+    "out_dir": "runs/live_screen",
+    "run_name": null,
+    "save_screenshots": true,
+    "save_grid": true,
+    "grid_max_items": 24,
+    "grid_cols": 6,
+    "grid_thumb_size": 160,
+    "viewer_enabled": true
+  },
+  "trigger": {
+    "mode": "hotkey",
+    "hotkey": "<ctrl>+<shift>+b",
+    "stdin_prompt": "Press Enter to capture, or type quit to exit."
+  },
+  "device": "auto"
+}
