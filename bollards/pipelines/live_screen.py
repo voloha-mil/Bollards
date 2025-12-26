@@ -283,7 +283,6 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
     def handle_capture(screen: Image.Image, screen_path: Path) -> None:
         nonlocal captures_total, captures_with_boxes, accepted_total, sum_top1_conf, sum_probs
         captures_total += 1
-
         results = run_inference(
             model=detector,
             image_path=screen_path,
@@ -304,7 +303,6 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
         boxes_xyxy = boxes.xyxy.cpu().numpy()
         confs = boxes.conf.cpu().numpy()
         clss = boxes.cls.cpu().numpy()
-
         filtered = _filter_detections(cfg, boxes_xyxy, confs, clss)
         if not filtered:
             logger.info("No boxes after filters")
@@ -327,7 +325,6 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
         with torch.no_grad():
             logits = classifier(images_t, meta_t)
             probs = torch.softmax(logits, dim=1).cpu().numpy()
-
         for i, (det, bbox_norm) in enumerate(infos):
             prob_vec = probs[i]
             topk = max(1, min(cfg.classifier.topk, prob_vec.shape[0]))
@@ -344,9 +341,9 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
                 for idx in top_idx
             ]
 
-            if top1_prob < cfg.classifier.min_class_conf:
-                continue
-
+            # if top1_prob < cfg.classifier.min_class_conf:
+            #     continue # TODO fix this
+            
             accepted_total += 1
             sum_top1_conf += top1_prob
             sum_probs += prob_vec
@@ -402,6 +399,7 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         screen_path = screenshots_dir / f"screen_{ts}.jpg"
         screen.save(screen_path)
+        logger.info("Screenshot captured and saved to %s", screen_path)
         handle_capture(screen, screen_path)
         if not cfg.output.save_screenshots:
             screen_path.unlink(missing_ok=True)

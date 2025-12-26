@@ -1,0 +1,45 @@
+{
+  "data": {
+    "main_csv": "local_data/meta/merged_boxes.csv",
+    "main_img_root": "local_data",
+    "golden_csv": "golden_dataset/labels.csv",
+    "golden_img_root": "golden_dataset",
+    "country_map_json": "local_data/meta/country_map.json",
+    "region_map_json": null,
+    "golden_default_category": "bollard"
+  },
+  "detector": {
+    "enabled": false,
+    "weights_path": null,
+    "hf_repo": "maco018/YOLOv12_traffic-delineator",
+    "hf_filename": "models/YOLOv12_traffic-delineator.pt",
+    "hf_cache": "./hf_cache",
+    "imgsz": 960,
+    "conf": 0.25,
+    "batch": 8,
+    "max_images": 0,
+    "cls_allow": null,
+    "min_box_w_px": 0.0,
+    "min_box_h_px": 0.0,
+    "max_boxes_per_image": 50,
+    "class_names": null
+  },
+  "classifier": {
+    "checkpoint_path": "runs/bollard_country/run_20251226_115214/best.pt",
+    "img_size": 224,
+    "expand": 2.0,
+    "batch_size": 64,
+    "num_workers": 0
+  },
+  "output": {
+    "out_dir": "runs/analyze_run",
+    "run_name": null,
+    "gallery_size": 24,
+    "gallery_per_category": 12,
+    "top_k": 5,
+    "min_support": 5,
+    "max_categories_plots": 6
+  },
+  "device": "auto",
+  "seed": 42
+}
