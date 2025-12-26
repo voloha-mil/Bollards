@@ -11,6 +11,7 @@ from typing import Dict, List, Tuple
 import boto3
 import pandas as pd
 from PIL import Image
+from tqdm import tqdm
 
 from bollards.config import PrepareLocalDatasetConfig
 from bollards.constants import LOCAL_DATASET_OUT_COLS, LOCAL_DATASET_REQUIRED_COLS
@@ -416,7 +417,9 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
 
     print(f"[info] downloading {len(img_jobs)} original images...")
     with cf.ThreadPoolExecutor(max_workers=16) as ex:
-        list(ex.map(dl_one, img_jobs.values()))
+        futures = [ex.submit(dl_one, job) for job in img_jobs.values()]
+        for fut in tqdm(cf.as_completed(futures), total=len(futures), desc="download images", dynamic_ncols=True):
+            fut.result()
 
     if cfg.download_annotated:
         ann_jobs = {}
