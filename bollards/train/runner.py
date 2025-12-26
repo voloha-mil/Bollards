@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import asdict
 from datetime import datetime
 from typing import Dict, Optional, Tuple
@@ -231,6 +232,18 @@ def run_training(cfg: TrainConfig) -> None:
     writer.add_text("model/config", json.dumps(asdict(cfg.model), indent=2), global_step=0)
     with open(os.path.join(run_dir, "config.json"), "w", encoding="utf-8") as f:
         json.dump(asdict(cfg), f, indent=2)
+
+    if cfg.data.country_map_json and os.path.exists(cfg.data.country_map_json):
+        shutil.copyfile(cfg.data.country_map_json, os.path.join(run_dir, "country_map.json"))
+        base_dir = os.path.dirname(cfg.data.country_map_json)
+        for fname in ("country_list.json", "country_counts.csv"):
+            src = os.path.join(base_dir, fname)
+            if os.path.exists(src):
+                shutil.copyfile(src, os.path.join(run_dir, fname))
+        mapping_path = os.path.join(os.path.dirname(__file__), "..", "data", "country_mapping.json")
+        mapping_path = os.path.normpath(mapping_path)
+        if os.path.exists(mapping_path):
+            shutil.copyfile(mapping_path, os.path.join(run_dir, "country_mapping.json"))
 
     best_top1 = 0.0
 

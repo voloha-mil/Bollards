@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 
@@ -112,11 +115,52 @@ GOLDEN_COUNTRY_NAME_TO_CODE = {
     "\u00c5land": "AX",
 }
 
+COUNTRY_ALIAS_PREFIX_TO_CODE = {
+    "United States": "US",
+}
+
+COUNTRY_CODE_TO_NAME: dict[str, str] = {}
+for name, code in GOLDEN_COUNTRY_NAME_TO_CODE.items():
+    COUNTRY_CODE_TO_NAME.setdefault(code, name)
+
+COUNTRY_MAPPING_PATH = Path(__file__).with_name("country_mapping.json")
+
+
+@lru_cache
+def _load_country_mapping() -> dict:
+    if not COUNTRY_MAPPING_PATH.exists():
+        return {}
+    try:
+        with COUNTRY_MAPPING_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
 
 def golden_country_to_code(name: str) -> Optional[str]:
     if not name:
         return None
     name = str(name).strip()
-    if name.startswith("United States"):
-        return "US"
-    return GOLDEN_COUNTRY_NAME_TO_CODE.get(name)
+    mapping = _load_country_mapping()
+    alias_exact = mapping.get("alias_to_code") if isinstance(mapping.get("alias_to_code"), dict) else {}
+    code_by_name = mapping.get("code_by_name") if isinstance(mapping.get("code_by_name"), dict) else GOLDEN_COUNTRY_NAME_TO_CODE
+    alias_prefix = mapping.get("alias_prefix_to_code") if isinstance(mapping.get("alias_prefix_to_code"), dict) else COUNTRY_ALIAS_PREFIX_TO_CODE
+
+    if name in alias_exact:
+        return alias_exact.get(name)
+    if name in code_by_name:
+        return code_by_name.get(name)
+    for prefix, code in alias_prefix.items():
+        if name.startswith(prefix):
+            return code
+    return None
+
+
+def country_code_to_name(code: str) -> Optional[str]:
+    if not code:
+        return None
+    code = str(code).strip().upper()
+    mapping = _load_country_mapping()
+    canonical_by_code = mapping.get("canonical_by_code") if isinstance(mapping.get("canonical_by_code"), dict) else COUNTRY_CODE_TO_NAME
+    return canonical_by_code.get(code, code)

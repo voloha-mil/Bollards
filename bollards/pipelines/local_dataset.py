@@ -190,19 +190,13 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
     if len(all_df) == 0:
         raise SystemExit("No rows with n_boxes > 0 after filtering.")
 
-    country_map = build_country_map(all_df["country"].astype(str).tolist())
-    with open(meta_dir / "country_map.json", "w", encoding="utf-8") as f:
-        json.dump(country_map, f, indent=2, ensure_ascii=False)
-
     allow_set = set(cfg.cls_allow) if cfg.cls_allow is not None else None
 
     candidates = []
+    country_box_counts: Dict[str, int] = {}
     for _, row in all_df.iterrows():
         image_id = str(row["id"])
         country = str(row["country"])
-        if country not in country_map:
-            continue
-        country_id = int(country_map[country])
 
         s3_bucket = str(row["s3_bucket"])
         s3_image_key = str(row["s3_image_key"])
@@ -249,7 +243,6 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
             candidates.append({
                 "image_id": image_id,
                 "country": country,
-                "country_id": country_id,
                 "s3_bucket": s3_bucket,
                 "s3_image_key": s3_image_key,
                 "s3_annotated_key": s3_annotated_key,
@@ -261,9 +254,29 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
                 "x2_px": float(x2),
                 "y2_px": float(y2),
             })
+            country_box_counts[country] = country_box_counts.get(country, 0) + 1
+
+    if cfg.min_country_count > 0:
+        keep_countries = {c for c, n in country_box_counts.items() if n >= cfg.min_country_count}
+        dropped = sorted(set(country_box_counts.keys()) - keep_countries)
+        if dropped:
+            print(f"[info] dropping {len(dropped)} countries with < {cfg.min_country_count} boxes.")
+        candidates = [c for c in candidates if c["country"] in keep_countries]
+        country_box_counts = {c: n for c, n in country_box_counts.items() if c in keep_countries}
 
     if not candidates:
-        raise SystemExit("No candidate boxes after filtering. Relax filters.")
+        raise SystemExit("No candidate boxes after filtering. Relax filters or min_country_count.")
+
+    country_map = build_country_map([c["country"] for c in candidates])
+    with open(meta_dir / "country_map.json", "w", encoding="utf-8") as f:
+        json.dump(country_map, f, indent=2, ensure_ascii=False)
+    country_list = [name for name, _ in sorted(country_map.items(), key=lambda kv: kv[1])]
+    with open(meta_dir / "country_list.json", "w", encoding="utf-8") as f:
+        json.dump(country_list, f, indent=2, ensure_ascii=False)
+    counts_df = pd.DataFrame(
+        [{"country": c, "count": n} for c, n in sorted(country_box_counts.items(), key=lambda kv: kv[1], reverse=True)]
+    )
+    counts_df.to_csv(meta_dir / "country_counts.csv", index=False)
 
     cand_df = pd.DataFrame(candidates)
 
@@ -278,6 +291,8 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
 
     if len(selected_df) < cfg.num_boxes:
         print(f"[warn] Only {len(selected_df)} boxes available after filtering (requested {cfg.num_boxes}).")
+
+    selected_df["country_id"] = selected_df["country"].map(country_map)
 
     selected_df["local_image_rel"] = selected_df["image_id"].apply(lambda x: os.path.join("images", f"{x}.jpg"))
     if cfg.download_annotated:
