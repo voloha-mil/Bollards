@@ -26,6 +26,7 @@ from bollards.models.bollard_net import BollardNet
 from bollards.train.losses import FocalLoss
 from bollards.train.loop import evaluate, train_one_epoch
 from bollards.train.visuals import annotate_grid_images
+from bollards.utils.seeding import make_torch_generator, seed_everything, seed_worker
 
 
 def _build_country_mappings(
@@ -162,6 +163,8 @@ def _sample_diverse_rows(df: pd.DataFrame, n: int, label_col: str, seed: int = 4
 
 
 def run_training(cfg: TrainConfig) -> None:
+    seed_everything(cfg.seed)
+
     if cfg.model.meta_dim != len(META_COLS):
         raise ValueError(f"model.meta_dim must match META_COLS ({len(META_COLS)})")
 
@@ -193,9 +196,9 @@ def run_training(cfg: TrainConfig) -> None:
     train_df = pd.read_csv(cfg.data.train_csv)
     val_df = pd.read_csv(cfg.data.val_csv)
     if cfg.data.max_train_samples > 0 and len(train_df) > cfg.data.max_train_samples:
-        train_df = train_df.sample(n=cfg.data.max_train_samples, random_state=42).reset_index(drop=True)
+        train_df = train_df.sample(n=cfg.data.max_train_samples, random_state=cfg.seed).reset_index(drop=True)
     if cfg.data.max_val_samples > 0 and len(val_df) > cfg.data.max_val_samples:
-        val_df = val_df.sample(n=cfg.data.max_val_samples, random_state=42).reset_index(drop=True)
+        val_df = val_df.sample(n=cfg.data.max_val_samples, random_state=cfg.seed).reset_index(drop=True)
     id_to_country, country_to_id = _build_country_mappings(id_to_country, train_df, val_df)
     avg_bbox_w, avg_bbox_h = compute_avg_bbox_wh(train_df, label="Train")
 
@@ -223,13 +226,16 @@ def run_training(cfg: TrainConfig) -> None:
     train_ds = BollardCropsDataset(train_df, cfg.data.img_root, train_tfm, expand=cfg.data.expand)
     val_ds = BollardCropsDataset(val_df, cfg.data.img_root, val_tfm, expand=cfg.data.expand)
 
-    sampler = make_sampler(train_df) if cfg.data.balanced_sampler else None
+    sampler = None
+    if cfg.data.balanced_sampler:
+        sampler = make_sampler(train_df, generator=make_torch_generator(cfg.seed, "train_sampler"))
 
-    def _loader_kwargs(num_workers: int) -> dict:
-        kwargs = {"num_workers": num_workers}
+    def _loader_kwargs(num_workers: int, generator: torch.Generator) -> dict:
+        kwargs = {"num_workers": num_workers, "generator": generator}
         if num_workers > 0:
             kwargs["prefetch_factor"] = cfg.data.prefetch_factor
             kwargs["persistent_workers"] = cfg.data.persistent_workers
+            kwargs["worker_init_fn"] = seed_worker
         return kwargs
 
     pin_memory = device.type == "cuda"
@@ -244,14 +250,14 @@ def run_training(cfg: TrainConfig) -> None:
         sampler=sampler,
         pin_memory=pin_memory,
         drop_last=True,
-        **_loader_kwargs(train_workers),
+        **_loader_kwargs(train_workers, make_torch_generator(cfg.seed, "train_loader")),
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.data.batch_size,
         shuffle=False,
         pin_memory=pin_memory,
-        **_loader_kwargs(val_workers),
+        **_loader_kwargs(val_workers, make_torch_generator(cfg.seed, "val_loader")),
     )
 
     golden_loader = None
@@ -276,11 +282,11 @@ def run_training(cfg: TrainConfig) -> None:
             batch_size=cfg.data.batch_size,
             shuffle=False,
             pin_memory=pin_memory,
-            **_loader_kwargs(golden_workers),
+            **_loader_kwargs(golden_workers, make_torch_generator(cfg.seed, "golden_loader")),
         )
         if cfg.logging.log_images > 0:
             vis_count = min(cfg.logging.log_images, len(golden_df))
-            golden_vis_df = _sample_diverse_rows(golden_df, vis_count, LABEL_COL, seed=42)
+            golden_vis_df = _sample_diverse_rows(golden_df, vis_count, LABEL_COL, seed=cfg.seed)
             if not golden_vis_df.empty:
                 golden_vis_ds = BollardCropsDataset(
                     golden_vis_df, golden_root, val_tfm, expand=cfg.data.expand
@@ -290,7 +296,7 @@ def run_training(cfg: TrainConfig) -> None:
                     batch_size=min(cfg.data.batch_size, len(golden_vis_df)),
                     shuffle=False,
                     pin_memory=pin_memory,
-                    **_loader_kwargs(golden_workers),
+                    **_loader_kwargs(golden_workers, make_torch_generator(cfg.seed, "golden_vis_loader")),
                 )
                 fixed_golden_batch = next(iter(golden_vis_loader))
 

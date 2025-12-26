@@ -16,6 +16,7 @@ from tqdm import tqdm
 from bollards.config import PrepareLocalDatasetConfig
 from bollards.constants import LOCAL_DATASET_OUT_COLS, LOCAL_DATASET_REQUIRED_COLS
 from bollards.io.fs import ensure_dir
+from bollards.utils.seeding import make_python_rng
 
 
 def list_filtered_csv_keys(bucket: str, root_prefix: str, split_name: str) -> List[str]:
@@ -265,6 +266,7 @@ def select_candidates(
     candidates: List[dict],
     cfg: PrepareLocalDatasetConfig,
     split_label: str,
+    rng: random.Random,
 ) -> pd.DataFrame:
     if not candidates:
         return pd.DataFrame()
@@ -275,7 +277,7 @@ def select_candidates(
         selected_df = cand_df.head(cfg.num_boxes).copy()
     else:
         idxs = list(range(len(cand_df)))
-        random.shuffle(idxs)
+        rng.shuffle(idxs)
         take = idxs[: min(cfg.num_boxes, len(idxs))]
         selected_df = cand_df.iloc[take].copy().reset_index(drop=True)
 
@@ -323,7 +325,8 @@ def build_output_df(selected_df: pd.DataFrame, size_map: Dict[str, Tuple[int, in
 
 
 def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
-    random.seed(cfg.seed)
+    train_rng = make_python_rng(cfg.seed, "local_dataset_train")
+    val_rng = make_python_rng(cfg.seed, "local_dataset_val")
 
     images_dir = Path(cfg.out_dir) / "images"
     annotated_dir = Path(cfg.out_dir) / "annotated"
@@ -375,10 +378,10 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
     )
     counts_df.to_csv(meta_dir / "country_counts.csv", index=False)
 
-    train_selected_df = select_candidates(train_candidates, cfg, f"train ({cfg.train_split})")
+    train_selected_df = select_candidates(train_candidates, cfg, f"train ({cfg.train_split})", rng=train_rng)
     if train_selected_df.empty:
         raise SystemExit("No train boxes after sampling.")
-    val_selected_df = select_candidates(val_candidates, cfg, f"val ({cfg.val_split})")
+    val_selected_df = select_candidates(val_candidates, cfg, f"val ({cfg.val_split})", rng=val_rng)
     if val_selected_df.empty:
         raise SystemExit("No validation boxes after sampling.")
 

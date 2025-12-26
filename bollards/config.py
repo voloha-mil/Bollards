@@ -126,6 +126,7 @@ class TrainConfig:
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     device: str = "auto"
+    seed: int = 42
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrainConfig":
@@ -138,6 +139,7 @@ class TrainConfig:
             schedule=ScheduleConfig.from_dict(data.get("schedule", {})),
             logging=LoggingConfig.from_dict(data.get("logging", {})),
             device=str(data.get("device", "auto")),
+            seed=int(data.get("seed", 42)),
         )
 
 

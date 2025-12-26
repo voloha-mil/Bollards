@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import random
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +31,7 @@ from bollards.io.fs import ensure_dir
 from bollards.io.hf import hf_download_model_file
 from bollards.models.bollard_net import BollardNet, ModelConfig
 from bollards.pipelines.local_dataset import normalize_bbox_xyxy_px
+from bollards.utils.seeding import make_python_rng, make_torch_generator, seed_everything, seed_worker
 
 
 class BollardCropsDatasetWithIndex(BollardCropsDataset):
@@ -538,12 +538,19 @@ def _run_classifier(
     tfm = build_transforms(train=False, img_size=cfg.classifier.img_size)
     ds = BollardCropsDatasetWithIndex(df, str(img_root), tfm, expand=cfg.classifier.expand)
 
+    loader_kwargs = {
+        "num_workers": cfg.classifier.num_workers,
+        "pin_memory": device.type == "cuda",
+        "generator": make_torch_generator(cfg.seed, "analyze_loader"),
+    }
+    if cfg.classifier.num_workers > 0:
+        loader_kwargs["worker_init_fn"] = seed_worker
+
     loader = DataLoader(
         ds,
         batch_size=cfg.classifier.batch_size,
         shuffle=False,
-        num_workers=cfg.classifier.num_workers,
-        pin_memory=device.type == "cuda",
+        **loader_kwargs,
     )
 
     records = []
@@ -719,9 +726,8 @@ def _relative_paths(paths: list[str], base_dir: Path) -> list[str]:
 
 
 def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
-    random.seed(cfg.seed)
-    np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed)
+    seed_everything(cfg.seed)
+    rng = make_python_rng(cfg.seed, "analyze_shuffle")
 
     out_dir = Path(cfg.output.out_dir)
     ensure_dir(out_dir)
@@ -967,7 +973,7 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             for cls_name in det_class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():
                 cls_subset = det_df[det_df["class_name"] == cls_name]
                 img_ids = cls_subset["image_path"].dropna().unique().tolist()
-                random.shuffle(img_ids)
+                rng.shuffle(img_ids)
                 img_ids = img_ids[: cfg.output.gallery_per_category]
                 gallery_dir = run_dir / "artifacts" / "detector" / "gallery" / cls_name.replace("/", "_")
                 gallery_dir.mkdir(parents=True, exist_ok=True)
