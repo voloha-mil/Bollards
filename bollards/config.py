@@ -61,15 +61,24 @@ class OptimConfig:
     weight_decay: float = 1e-4
     label_smoothing: float = 0.05
     conf_weight_min: float = 0.2
+    focal_gamma: float = 0.0
+    focal_alpha: Optional[float | list[float]] = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "OptimConfig":
+        focal_alpha = data.get("focal_alpha")
+        if isinstance(focal_alpha, list):
+            focal_alpha = [float(v) for v in focal_alpha]
+        elif focal_alpha is not None:
+            focal_alpha = float(focal_alpha)
         return cls(
             lr=float(data.get("lr", 3e-4)),
             backbone_lr=float(data.get("backbone_lr", 1e-4)),
             weight_decay=float(data.get("weight_decay", 1e-4)),
             label_smoothing=float(data.get("label_smoothing", 0.05)),
             conf_weight_min=float(data.get("conf_weight_min", 0.2)),
+            focal_gamma=float(data.get("focal_gamma", 0.0)),
+            focal_alpha=focal_alpha,
         )
 
 

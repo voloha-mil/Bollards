@@ -21,6 +21,7 @@ from bollards.data.labels import load_id_to_country
 from bollards.data.samplers import make_sampler
 from bollards.data.transforms import build_transforms
 from bollards.models.bollard_net import BollardNet
+from bollards.train.losses import FocalLoss
 from bollards.train.loop import evaluate, train_one_epoch
 from bollards.train.visuals import annotate_grid_images
 
@@ -214,7 +215,14 @@ def run_training(cfg: TrainConfig) -> None:
     model = BollardNet(cfg.model).to(device)
     print(f"[info] model config: {asdict(cfg.model)}")
 
-    criterion = nn.CrossEntropyLoss(label_smoothing=cfg.optim.label_smoothing, reduction="none")
+    if cfg.optim.focal_gamma > 0 or cfg.optim.focal_alpha is not None:
+        criterion = FocalLoss(
+            gamma=cfg.optim.focal_gamma,
+            alpha=cfg.optim.focal_alpha,
+            label_smoothing=cfg.optim.label_smoothing,
+        )
+    else:
+        criterion = nn.CrossEntropyLoss(label_smoothing=cfg.optim.label_smoothing, reduction="none")
 
     def param_groups(m: BollardNet):
         backbone_params = [p for p in m.backbone.parameters() if p.requires_grad]
