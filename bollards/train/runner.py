@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 import pandas as pd
@@ -99,8 +100,21 @@ def run_training(cfg: TrainConfig) -> None:
         raise ValueError(f"model.meta_dim must match META_COLS ({len(META_COLS)})")
 
     os.makedirs(cfg.logging.out_dir, exist_ok=True)
-    tb_dir = cfg.logging.tb_dir or os.path.join(cfg.logging.out_dir, "tb")
+    if cfg.logging.run_name:
+        run_name = cfg.logging.run_name
+    else:
+        run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_dir = os.path.join(cfg.logging.out_dir, run_name)
+    if os.path.exists(run_dir):
+        suffix = 1
+        while os.path.exists(f"{run_dir}_{suffix:02d}"):
+            suffix += 1
+        run_dir = f"{run_dir}_{suffix:02d}"
+    os.makedirs(run_dir, exist_ok=True)
+
+    tb_dir = cfg.logging.tb_dir or os.path.join(run_dir, "tb")
     os.makedirs(tb_dir, exist_ok=True)
+    print(f"[info] run_dir: {run_dir}")
 
     if cfg.device and cfg.device != "auto":
         device = torch.device(cfg.device)
@@ -203,6 +217,8 @@ def run_training(cfg: TrainConfig) -> None:
     writer = SummaryWriter(log_dir=tb_dir)
     writer.add_text("run/config", json.dumps(asdict(cfg), indent=2), global_step=0)
     writer.add_text("model/config", json.dumps(asdict(cfg.model), indent=2), global_step=0)
+    with open(os.path.join(run_dir, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(asdict(cfg), f, indent=2)
 
     best_top1 = 0.0
 
@@ -303,7 +319,7 @@ def run_training(cfg: TrainConfig) -> None:
                 writer.add_image(f"golden/examples_grid_epoch_{epoch:03d}", grid, 0)
                 writer.add_text(f"golden/examples_table_epoch_{epoch:03d}", f"<pre>{table}</pre>", 0)
 
-        last_path = os.path.join(cfg.logging.out_dir, "last.pt")
+        last_path = os.path.join(run_dir, "last.pt")
         torch.save(
             {
                 "epoch": epoch,
@@ -319,7 +335,7 @@ def run_training(cfg: TrainConfig) -> None:
 
         if val_top1 > best_top1:
             best_top1 = val_top1
-            best_path = os.path.join(cfg.logging.out_dir, "best.pt")
+            best_path = os.path.join(run_dir, "best.pt")
             torch.save(
                 {
                     "epoch": epoch,

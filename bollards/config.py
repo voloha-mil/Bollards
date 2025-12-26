@@ -78,6 +78,7 @@ class ScheduleConfig:
 class LoggingConfig:
     out_dir: str = "runs/bollard_country"
     tb_dir: Optional[str] = None
+    run_name: Optional[str] = None
     log_images: int = 16
     log_image_every: int = 1
     tb_font_size: int = 18
@@ -87,6 +88,7 @@ class LoggingConfig:
         return cls(
             out_dir=str(data.get("out_dir", "runs/bollard_country")),
             tb_dir=data.get("tb_dir"),
+            run_name=data.get("run_name"),
             log_images=int(data.get("log_images", 16)),
             log_image_every=int(data.get("log_image_every", 1)),
             tb_font_size=int(data.get("tb_font_size", 18)),
