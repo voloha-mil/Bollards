@@ -106,10 +106,34 @@ def stratified_split_by_label(
     label_col: str,
     val_ratio: float,
     seed: int,
+    group_col: str | None = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     rng = random.Random(seed)
-    val_indices: List[int] = []
+    if group_col:
+        group_label_counts = df.groupby(group_col)[label_col].nunique()
+        multi_label_groups = group_label_counts[group_label_counts > 1]
+        if not multi_label_groups.empty:
+            print(
+                f"[warn] {len(multi_label_groups)} {group_col} values map to multiple labels; "
+                "keeping groups intact may skew stratification."
+            )
 
+        val_groups = set()
+        for _, g in df.groupby(label_col):
+            groups = g[group_col].dropna().unique().tolist()
+            if len(groups) <= 1:
+                continue
+            rng.shuffle(groups)
+            n_val = max(1, int(round(len(groups) * val_ratio)))
+            if n_val >= len(groups):
+                n_val = len(groups) - 1
+            val_groups.update(groups[:n_val])
+
+        val_df = df[df[group_col].isin(val_groups)].copy()
+        train_df = df[~df[group_col].isin(val_groups)].copy()
+        return train_df.reset_index(drop=True), val_df.reset_index(drop=True)
+
+    val_indices: List[int] = []
     for _, g in df.groupby(label_col):
         idxs = g.index.tolist()
         if len(idxs) <= 1:
@@ -336,7 +360,13 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
     out_df.to_csv(merged_path, index=False)
     print(f"[info] wrote {merged_path} rows={len(out_df)} images={out_df['image_path'].nunique()}")
 
-    train_df, val_df = stratified_split_by_label(out_df, "country_id", cfg.val_ratio, cfg.seed)
+    train_df, val_df = stratified_split_by_label(
+        out_df,
+        "country_id",
+        cfg.val_ratio,
+        cfg.seed,
+        group_col="image_id",
+    )
     train_path = meta_dir / "train.csv"
     val_path = meta_dir / "val.csv"
     train_df.to_csv(train_path, index=False)

@@ -22,6 +22,10 @@ class DataConfig:
     img_size: int = 224
     batch_size: int = 64
     num_workers: int = 4
+    val_num_workers: int = 0
+    golden_num_workers: int = 0
+    prefetch_factor: int = 1
+    persistent_workers: bool = False
     balanced_sampler: bool = False
     expand: float = 2.0
 
@@ -37,6 +41,10 @@ class DataConfig:
             img_size=int(data.get("img_size", 224)),
             batch_size=int(data.get("batch_size", 64)),
             num_workers=int(data.get("num_workers", 4)),
+            val_num_workers=int(data.get("val_num_workers", 0)),
+            golden_num_workers=int(data.get("golden_num_workers", 0)),
+            prefetch_factor=int(data.get("prefetch_factor", 1)),
+            persistent_workers=bool(data.get("persistent_workers", False)),
             balanced_sampler=bool(data.get("balanced_sampler", False)),
             expand=float(data.get("expand", 2.0)),
         )

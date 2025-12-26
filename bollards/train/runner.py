@@ -154,21 +154,33 @@ def run_training(cfg: TrainConfig) -> None:
 
     sampler = make_sampler(train_df) if cfg.data.balanced_sampler else None
 
+    def _loader_kwargs(num_workers: int) -> dict:
+        kwargs = {"num_workers": num_workers}
+        if num_workers > 0:
+            kwargs["prefetch_factor"] = cfg.data.prefetch_factor
+            kwargs["persistent_workers"] = cfg.data.persistent_workers
+        return kwargs
+
+    pin_memory = device.type == "cuda"
+    train_workers = cfg.data.num_workers
+    val_workers = cfg.data.val_num_workers
+    golden_workers = cfg.data.golden_num_workers
+
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.data.batch_size,
         shuffle=(sampler is None),
         sampler=sampler,
-        num_workers=cfg.data.num_workers,
-        pin_memory=(device.type == "cuda"),
+        pin_memory=pin_memory,
         drop_last=True,
+        **_loader_kwargs(train_workers),
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.data.batch_size,
         shuffle=False,
-        num_workers=cfg.data.num_workers,
-        pin_memory=(device.type == "cuda"),
+        pin_memory=pin_memory,
+        **_loader_kwargs(val_workers),
     )
 
     golden_loader = None
@@ -187,8 +199,8 @@ def run_training(cfg: TrainConfig) -> None:
             golden_ds,
             batch_size=cfg.data.batch_size,
             shuffle=False,
-            num_workers=cfg.data.num_workers,
-            pin_memory=(device.type == "cuda"),
+            pin_memory=pin_memory,
+            **_loader_kwargs(golden_workers),
         )
         fixed_golden_batch = next(iter(golden_loader))
 
