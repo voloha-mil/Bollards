@@ -28,8 +28,8 @@
   "output": {
     "out_dir": "runs/analyze_run",
     "run_name": null,
-    "gallery_size": 24,
-    "gallery_per_category": 12,
+    "gallery_size": 8,
+    "gallery_per_category": 4,
     "top_k": 5,
     "min_support": 5,
     "max_categories_plots": 6

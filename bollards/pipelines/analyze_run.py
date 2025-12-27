@@ -529,8 +529,9 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
     table { border-collapse: collapse; margin: 12px 0; }
     th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 13px; }
     th { background: #f5f5f5; }
-    img { margin: 6px; border: 1px solid #ddd; }
+    img { margin: 6px; border: 1px solid #ddd; max-width: 100%; height: auto; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+    .grid img { width: 100%; height: auto; display: block; margin: 0; }
     section { margin-bottom: 32px; }
     </style>
     """
