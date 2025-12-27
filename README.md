@@ -6,11 +6,6 @@ Bollards is a project for country classification based on bollard appearance in
 Street View imagery. It uses a detector to find bollards and a classifier on
 top of the detected crops to predict the country.
 
-## Analysis
-
-`scripts/analyze_run.py` generates a report directory under `runs/analyze_run/`
-with summary tables, plots, and galleries for a given dataset and checkpoint.
-
 ## Live screen classification
 
 The live screen pipeline captures a region from your display and runs the
