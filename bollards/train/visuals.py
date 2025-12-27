@@ -102,6 +102,53 @@ def _wrap_text(
     return lines
 
 
+def annotate_pil_images(
+    pil_images: List[Image.Image],
+    text_blocks: List[List[str]],
+    *,
+    font_size: int = 18,
+    pad_x: int = 6,
+    pad_y: int = 4,
+    line_gap: int = 2,
+) -> List[Image.Image]:
+    if not pil_images:
+        return []
+    if len(pil_images) != len(text_blocks):
+        raise ValueError("annotate_pil_images expects matching image/text lengths.")
+
+    font = _load_font(font_size)
+    measure_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    line_h = _line_height(measure_draw, font)
+    max_lines = 1
+    wrapped_blocks: List[List[str]] = []
+
+    for pil, lines in zip(pil_images, text_blocks):
+        draw = ImageDraw.Draw(pil)
+        max_width = max(1, pil.size[0] - pad_x * 2)
+        wrapped_lines: List[str] = []
+        for base in lines:
+            wrapped_lines.extend(_wrap_text(draw, base, font, max_width))
+        if not wrapped_lines:
+            wrapped_lines = [""]
+        wrapped_blocks.append(wrapped_lines)
+        max_lines = max(max_lines, len(wrapped_lines))
+
+    text_h = pad_y * 2 + line_h * max_lines + line_gap * (max_lines - 1)
+    annotated: List[Image.Image] = []
+    for pil, wrapped_lines in zip(pil_images, wrapped_blocks):
+        annotated_pil = Image.new("RGB", (pil.size[0], pil.size[1] + text_h), color=(0, 0, 0))
+        annotated_pil.paste(pil, (0, text_h))
+        draw = ImageDraw.Draw(annotated_pil)
+        y = pad_y
+        for line in wrapped_lines:
+            draw.text((pad_x, y), line, fill=(255, 255, 255), font=font)
+            y += line_h + line_gap
+
+        annotated.append(annotated_pil)
+
+    return annotated
+
+
 @torch.no_grad()
 def annotate_grid_images(
     images_norm: torch.Tensor,
@@ -127,18 +174,10 @@ def annotate_grid_images(
     probs = torch.softmax(logits[:n], dim=1)
     topv, topi = torch.topk(probs, k=min(topk, probs.size(1)), dim=1)
 
-    font = _load_font(font_size)
     annotated = []
     lines = ["idx\ttrue\tpred\tp(true)\t(topk)"]
     pil_images = []
     text_blocks: List[List[str]] = []
-
-    pad_x = 6
-    pad_y = 4
-    line_gap = 2
-    measure_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    line_h = _line_height(measure_draw, font)
-    max_lines = 1
 
     for i in range(n):
         img = denormalize(images_norm[i]).cpu()
@@ -157,34 +196,17 @@ def annotate_grid_images(
             name = id_to_country[cid] if id_to_country and cid < len(id_to_country) else str(cid)
             topk_str.append(f"{name}:{float(topv[i, k].item()):.2f}")
 
-        draw = ImageDraw.Draw(pil)
         base_lines = [f"T:{true_name}  P:{pred_name}  p(T)={p_true:.2f}"]
         if topk_str:
             base_lines.append("  ".join(topk_str))
 
-        max_width = max(1, pil.size[0] - pad_x * 2)
-        wrapped_lines: List[str] = []
-        for base in base_lines:
-            wrapped_lines.extend(_wrap_text(draw, base, font, max_width))
-        if not wrapped_lines:
-            wrapped_lines = [""]
-
         pil_images.append(pil)
-        text_blocks.append(wrapped_lines)
-        max_lines = max(max_lines, len(wrapped_lines))
+        text_blocks.append(base_lines)
         lines.append(f"{i}\t{true_name}\t{pred_name}\t{p_true:.3f}\t{' | '.join(topk_str)}")
 
-    text_h = pad_y * 2 + line_h * max_lines + line_gap * (max_lines - 1)
-    for pil, wrapped_lines in zip(pil_images, text_blocks):
-        annotated_pil = Image.new("RGB", (pil.size[0], pil.size[1] + text_h), color=(0, 0, 0))
-        annotated_pil.paste(pil, (0, text_h))
-        draw = ImageDraw.Draw(annotated_pil)
-        y = pad_y
-        for line in wrapped_lines:
-            draw.text((pad_x, y), line, fill=(255, 255, 255), font=font)
-            y += line_h + line_gap
-
-        annotated.append(transforms.ToTensor()(annotated_pil))
+    annotated_pil = annotate_pil_images(pil_images, text_blocks, font_size=font_size)
+    for pil in annotated_pil:
+        annotated.append(transforms.ToTensor()(pil))
 
     grid = make_grid(torch.stack(annotated, dim=0), nrow=4, padding=2)
     table = "\n".join(lines)

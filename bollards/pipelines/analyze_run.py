@@ -400,9 +400,33 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
 
             galleries = {}
             img_root = Path(cfg.data.golden_img_root or Path(cfg.data.golden_csv or ".").parent)
-            galleries["correct"] = _save_gallery(correct, img_root, run_dir / "artifacts" / "classifier" / "golden" / "gallery_correct", "correct", cfg.classifier.expand, cfg.output.gallery_size)
-            galleries["incorrect"] = _save_gallery(incorrect_sample, img_root, run_dir / "artifacts" / "classifier" / "golden" / "gallery_incorrect", "incorrect", cfg.classifier.expand, cfg.output.gallery_size)
-            galleries["high_conf_wrong"] = _save_gallery(high_conf_wrong, img_root, run_dir / "artifacts" / "classifier" / "golden" / "gallery_high_conf_wrong", "highconf_wrong", cfg.classifier.expand, cfg.output.gallery_size)
+            galleries["correct"] = _save_gallery(
+                correct,
+                img_root,
+                run_dir / "artifacts" / "classifier" / "golden" / "gallery_correct",
+                "correct",
+                cfg.classifier.expand,
+                cfg.output.gallery_size,
+                cfg.classifier.img_size,
+            )
+            galleries["incorrect"] = _save_gallery(
+                incorrect_sample,
+                img_root,
+                run_dir / "artifacts" / "classifier" / "golden" / "gallery_incorrect",
+                "incorrect",
+                cfg.classifier.expand,
+                cfg.output.gallery_size,
+                cfg.classifier.img_size,
+            )
+            galleries["high_conf_wrong"] = _save_gallery(
+                high_conf_wrong,
+                img_root,
+                run_dir / "artifacts" / "classifier" / "golden" / "gallery_high_conf_wrong",
+                "highconf_wrong",
+                cfg.classifier.expand,
+                cfg.output.gallery_size,
+                cfg.classifier.img_size,
+            )
 
             section = ""
             section += "<p>Top-1 country: {:.3f} | Top-5 country: {:.3f}</p>".format(metrics.get("top1_country", 0.0), metrics.get("top5_country", 0.0))
@@ -487,9 +511,33 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
 
                 galleries = {}
                 img_root = Path(cfg.data.main_img_root)
-                galleries["correct"] = _save_gallery(correct, img_root, run_dir / "artifacts" / "classifier" / "main" / "gallery_correct", "correct", cfg.classifier.expand, cfg.output.gallery_size)
-                galleries["incorrect"] = _save_gallery(incorrect_sample, img_root, run_dir / "artifacts" / "classifier" / "main" / "gallery_incorrect", "incorrect", cfg.classifier.expand, cfg.output.gallery_size)
-                galleries["high_conf_wrong"] = _save_gallery(high_conf_wrong, img_root, run_dir / "artifacts" / "classifier" / "main" / "gallery_high_conf_wrong", "highconf_wrong", cfg.classifier.expand, cfg.output.gallery_size)
+                galleries["correct"] = _save_gallery(
+                    correct,
+                    img_root,
+                    run_dir / "artifacts" / "classifier" / "main" / "gallery_correct",
+                    "correct",
+                    cfg.classifier.expand,
+                    cfg.output.gallery_size,
+                    cfg.classifier.img_size,
+                )
+                galleries["incorrect"] = _save_gallery(
+                    incorrect_sample,
+                    img_root,
+                    run_dir / "artifacts" / "classifier" / "main" / "gallery_incorrect",
+                    "incorrect",
+                    cfg.classifier.expand,
+                    cfg.output.gallery_size,
+                    cfg.classifier.img_size,
+                )
+                galleries["high_conf_wrong"] = _save_gallery(
+                    high_conf_wrong,
+                    img_root,
+                    run_dir / "artifacts" / "classifier" / "main" / "gallery_high_conf_wrong",
+                    "highconf_wrong",
+                    cfg.classifier.expand,
+                    cfg.output.gallery_size,
+                    cfg.classifier.img_size,
+                )
 
                 section = ""
                 section += "<p>Top-1 country: {:.3f} | Top-5 country: {:.3f}</p>".format(metrics.get("top1_country", 0.0), metrics.get("top5_country", 0.0))
