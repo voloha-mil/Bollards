@@ -4,7 +4,7 @@
     "main_img_root": "local_data",
     "golden_csv": "golden_dataset/labels.csv",
     "golden_img_root": "golden_dataset",
-    "country_map_json": "local_data/meta/country_map.json",
+    "country_map_json": "runs/bollard_country/2712_random_flip/country_map.json",
     "region_map_json": null,
     "golden_default_category": "bollard"
   },
@@ -21,7 +21,7 @@
   },
   "classifier": {
     "include": "common_classifier.json",
-    "checkpoint_path": "runs/bollard_country/run_20251226_115214/best.pt",
+    "checkpoint_path": "runs/bollard_country/2712_random_flip/best.pt",
     "batch_size": 64,
     "num_workers": 0
   },
