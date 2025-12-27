@@ -195,6 +195,20 @@ def run_training(cfg: TrainConfig) -> None:
 
     train_df = pd.read_csv(cfg.data.train_csv)
     val_df = pd.read_csv(cfg.data.val_csv)
+    use_class_weighting = bool(cfg.optim.class_weighting)
+    use_sampler = bool(cfg.data.balanced_sampler)
+    use_focal = bool(cfg.optim.focal_gamma > 0 or cfg.optim.focal_alpha is not None)
+    enabled = {
+        "class_weighting": use_class_weighting,
+        "balanced_sampler": use_sampler,
+        "focal_loss": use_focal,
+    }
+    if sum(enabled.values()) > 1:
+        active = [k for k, v in enabled.items() if v]
+        raise ValueError(
+            "Only one of class_weighting, balanced_sampler, or focal_loss can be enabled at a time. "
+            f"Active: {active}"
+        )
     if cfg.data.max_train_samples > 0 and len(train_df) > cfg.data.max_train_samples:
         train_df = train_df.sample(n=cfg.data.max_train_samples, random_state=cfg.seed).reset_index(drop=True)
     if cfg.data.max_val_samples > 0 and len(val_df) > cfg.data.max_val_samples:
@@ -228,7 +242,11 @@ def run_training(cfg: TrainConfig) -> None:
 
     sampler = None
     if cfg.data.balanced_sampler:
-        sampler = make_sampler(train_df, generator=make_torch_generator(cfg.seed, "train_sampler"))
+        sampler = make_sampler(
+            train_df,
+            generator=make_torch_generator(cfg.seed, "train_sampler"),
+            alpha=cfg.data.sampler_alpha,
+        )
 
     def _loader_kwargs(num_workers: int, generator: torch.Generator) -> dict:
         kwargs = {"num_workers": num_workers, "generator": generator}

@@ -23,6 +23,7 @@ class DataConfig:
     prefetch_factor: int = 1
     persistent_workers: bool = False
     balanced_sampler: bool = False
+    sampler_alpha: float = 0.5
     expand: float = 2.0
     max_train_samples: int = 0
     max_val_samples: int = 0
@@ -44,6 +45,7 @@ class DataConfig:
             prefetch_factor=int(data.get("prefetch_factor", 1)),
             persistent_workers=bool(data.get("persistent_workers", False)),
             balanced_sampler=bool(data.get("balanced_sampler", False)),
+            sampler_alpha=float(data.get("sampler_alpha", 0.5)),
             expand=float(data.get("expand", 2.0)),
             max_train_samples=int(data.get("max_train_samples", 0)),
             max_val_samples=int(data.get("max_val_samples", 0)),
