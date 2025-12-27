@@ -11,6 +11,18 @@ http://huggingface.co/maco018/YOLOv12_traffic-delineator
 - Training: `python scripts/train.py --config configs/train.json --set data.batch_size=128`
 - Live screen: `python scripts/live_screen.py --config configs/live_screen.json --set classifier.checkpoint_path=runs/bollard_country/<run>/best.pt`
 
+### Environment and secrets
+
+- Copy `.env.example` to `.env` and fill in tokens/keys. `.env` is gitignored.
+- CLI auto-loads `.env` if `python-dotenv` is installed (included in `requirements.txt`).
+- Common variables: `HF_TOKEN`.
+
+### Development (lint/test)
+
+- Install minimal dev deps: `pip install -r requirements.dev.txt`
+- Lint: `ruff check .`
+- Tests: `python -m unittest discover -s tests -p "test_*.py"`
+
 ### Live screen classification
 
 - Install extra deps: `pip install -r requirements.live.txt`

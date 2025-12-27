@@ -91,6 +91,28 @@ class TestConfigIncludes(unittest.TestCase):
         self.assertEqual(cfg.data["list"], [1, 2])
         self.assertEqual(cfg.data["nested"], {"child": 7, "extra": "yes"})
 
+    def test_load_config_includes_list(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.json").write_text(
+                json.dumps({"value": 1, "from_a": True}),
+                encoding="utf-8",
+            )
+            (root / "b.json").write_text(
+                json.dumps({"value": 2, "from_b": True}),
+                encoding="utf-8",
+            )
+            (root / "base.json").write_text(
+                json.dumps({"include": ["a.json", "b.json"], "extra": "yes"}),
+                encoding="utf-8",
+            )
+            cfg = load_config(root / "base.json", DummyConfig)
+
+        self.assertEqual(cfg.data["value"], 2)
+        self.assertTrue(cfg.data["from_a"])
+        self.assertTrue(cfg.data["from_b"])
+        self.assertEqual(cfg.data["extra"], "yes")
+
 
 if __name__ == "__main__":
     unittest.main()

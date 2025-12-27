@@ -1,0 +1,4 @@
+# Minimal deps for lint/test in CI and local checks.
+pandas==2.3.3
+ruff==0.7.2
+python-dotenv==1.0.1

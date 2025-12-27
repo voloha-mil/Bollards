@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+  ".venv",
+  "venv",
+  "runs",
+  "hf_cache",
+  "local_data",
+  "work_tmp",
+  "filtered_dataset*",
+  "golden_dataset",
+  "osv5m",
+]
+
+[tool.ruff.lint]
+select = ["F401"]
+per-file-ignores = { "__init__.py" = ["F401"] }

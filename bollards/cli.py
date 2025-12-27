@@ -18,6 +18,7 @@ from bollards.pipelines.live_screen import run_live_screen
 from bollards.pipelines.local_dataset import run_prepare_local_dataset
 from bollards.pipelines.osv5m_mine import run_miner
 from bollards.train.runner import run_training
+from bollards.utils.env import load_env
 
 
 def _add_config_args(parser: argparse.ArgumentParser, config_help: str) -> None:
@@ -71,6 +72,7 @@ def _run_analyze(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    load_env()
     parser = argparse.ArgumentParser(prog="bollards")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
