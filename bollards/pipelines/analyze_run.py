@@ -11,7 +11,7 @@ from PIL import Image
 from bollards.config import AnalyzeRunConfig
 from bollards.constants import BBOX_COLS, LABEL_COL, META_COLS, PATH_COL
 from bollards.data.bboxes import compute_avg_bbox_wh
-from bollards.data.country_names import golden_country_to_code
+from bollards.data.country_names import country_code_to_name, golden_country_to_code
 from bollards.data.labels import load_id_to_country
 from bollards.io.fs import ensure_dir
 from bollards.pipelines.analyze.classifier import run_classifier as _run_classifier
@@ -188,8 +188,11 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         golden_df = golden_df.copy()
         if "country" in golden_df.columns:
             golden_df["country_code"] = golden_df["country"].apply(golden_country_to_code)
-        if "country_code" in golden_df.columns:
-            golden_df["country_code"] = golden_df["country_code"].fillna("")
+            code_series = golden_df["country_code"].fillna("")
+            canonical = code_series.map(country_code_to_name)
+            canonical = canonical.where(canonical != code_series, None)
+            golden_df["country"] = canonical.fillna(golden_df["country"])
+            golden_df["country_code"] = code_series
         golden_df["class_name"] = cfg.data.golden_default_category
         golden_df = _maybe_add_region_by_country(golden_df, "country_code", region_map, out_col="region")
         if "region" not in golden_df.columns and "continent" in golden_df.columns:

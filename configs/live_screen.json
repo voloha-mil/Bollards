@@ -12,8 +12,8 @@
   },
   "classifier": {
     "include": "common_classifier.json",
-    "checkpoint_path": "runs/bollard_country/run_20251226_115214/best.pt",
-    "country_map_json": "local_data/meta/country_map.json",
+    "checkpoint_path": "runs/bollard_country/fixed_seeds_01/best.pt",
+    "country_map_json": "runs/bollard_country/fixed_seeds_01/country_map.json",
     "min_class_conf": 0.02,
     "topk": 3
   },
