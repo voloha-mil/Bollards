@@ -18,6 +18,24 @@
     "max_train_samples": 100000,
     "max_val_samples": 2000
   },
+  "augment": {
+    "enabled": true,
+    "resize_pad": 32,
+    "crop_scale_min": 0.9,
+    "crop_scale_max": 1.0,
+    "hflip_p": 0.5,
+    "brightness": 0.15,
+    "contrast": 0.15,
+    "saturation": 0.1,
+    "hue": 0.02,
+    "blur_p": 0.15,
+    "blur_kernel": 3,
+    "affine_p": 0.5,
+    "affine_degrees": 7.0,
+    "affine_translate": 0.02,
+    "affine_scale_min": 0.95,
+    "affine_scale_max": 1.05
+  },
   "model": {
     "backbone_name": "efficientnet_b1",
     "pretrained": true,
@@ -49,7 +67,8 @@
     "run_name": "2712_flip_seed43",
     "log_images": 4,
     "log_image_every": 1,
-    "tb_font_size": 18
+    "tb_font_size": 18,
+    "best_metric": "val_top1"
   },
   "device": "auto",
   "seed": 42

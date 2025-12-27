@@ -51,6 +51,47 @@ class DataConfig:
 
 
 @dataclass
+class AugmentConfig:
+    enabled: bool = True
+    resize_pad: int = 32
+    crop_scale_min: float = 0.9
+    crop_scale_max: float = 1.0
+    hflip_p: float = 0.5
+    brightness: float = 0.15
+    contrast: float = 0.15
+    saturation: float = 0.10
+    hue: float = 0.02
+    blur_p: float = 0.15
+    blur_kernel: int = 3
+    affine_p: float = 0.5
+    affine_degrees: float = 7.0
+    affine_translate: float = 0.02
+    affine_scale_min: float = 0.95
+    affine_scale_max: float = 1.05
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AugmentConfig":
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            resize_pad=int(data.get("resize_pad", 32)),
+            crop_scale_min=float(data.get("crop_scale_min", 0.9)),
+            crop_scale_max=float(data.get("crop_scale_max", 1.0)),
+            hflip_p=float(data.get("hflip_p", 0.5)),
+            brightness=float(data.get("brightness", 0.15)),
+            contrast=float(data.get("contrast", 0.15)),
+            saturation=float(data.get("saturation", 0.10)),
+            hue=float(data.get("hue", 0.02)),
+            blur_p=float(data.get("blur_p", 0.15)),
+            blur_kernel=int(data.get("blur_kernel", 3)),
+            affine_p=float(data.get("affine_p", 0.5)),
+            affine_degrees=float(data.get("affine_degrees", 7.0)),
+            affine_translate=float(data.get("affine_translate", 0.02)),
+            affine_scale_min=float(data.get("affine_scale_min", 0.95)),
+            affine_scale_max=float(data.get("affine_scale_max", 1.05)),
+        )
+
+
+@dataclass
 class OptimConfig:
     lr: float = 3e-4
     backbone_lr: float = 1e-4
@@ -101,6 +142,7 @@ class LoggingConfig:
     log_images: int = 16
     log_image_every: int = 1
     tb_font_size: int = 18
+    best_metric: str = "val_top1"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LoggingConfig":
@@ -111,6 +153,7 @@ class LoggingConfig:
             log_images=int(data.get("log_images", 16)),
             log_image_every=int(data.get("log_image_every", 1)),
             tb_font_size=int(data.get("tb_font_size", 18)),
+            best_metric=str(data.get("best_metric", "val_top1")),
         )
 
 
@@ -118,6 +161,7 @@ class LoggingConfig:
 class TrainConfig:
     data: DataConfig
     model: "ModelConfig"
+    augment: AugmentConfig = field(default_factory=AugmentConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -131,6 +175,7 @@ class TrainConfig:
         return cls(
             data=DataConfig.from_dict(data["data"]),
             model=ModelConfig(**data["model"]),
+            augment=AugmentConfig.from_dict(data.get("augment", {})),
             optim=OptimConfig.from_dict(data.get("optim", {})),
             schedule=ScheduleConfig.from_dict(data.get("schedule", {})),
             logging=LoggingConfig.from_dict(data.get("logging", {})),

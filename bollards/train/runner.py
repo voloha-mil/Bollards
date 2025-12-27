@@ -220,8 +220,8 @@ def run_training(cfg: TrainConfig) -> None:
         )
         cfg.model.num_classes = required_classes
 
-    train_tfm = build_transforms(train=True, img_size=cfg.data.img_size)
-    val_tfm = build_transforms(train=False, img_size=cfg.data.img_size)
+    train_tfm = build_transforms(train=True, img_size=cfg.data.img_size, augment=cfg.augment)
+    val_tfm = build_transforms(train=False, img_size=cfg.data.img_size, augment=cfg.augment)
 
     train_ds = BollardCropsDataset(train_df, cfg.data.img_root, train_tfm, expand=cfg.data.expand)
     val_ds = BollardCropsDataset(val_df, cfg.data.img_root, val_tfm, expand=cfg.data.expand)
@@ -364,7 +364,27 @@ def run_training(cfg: TrainConfig) -> None:
         if os.path.exists(mapping_path):
             shutil.copyfile(mapping_path, os.path.join(run_dir, "country_mapping.json"))
 
-    best_top1 = 0.0
+    best_metric_name = str(cfg.logging.best_metric or "val_top1").strip()
+    allowed_metrics = {
+        "val_top1",
+        "val_top5",
+        "val_map",
+        "golden_top1",
+        "golden_top5",
+        "golden_map",
+    }
+    if best_metric_name not in allowed_metrics:
+        raise ValueError(
+            f"logging.best_metric must be one of {sorted(allowed_metrics)} (got {best_metric_name})."
+        )
+    if best_metric_name.startswith("golden_") and golden_loader is None:
+        print(
+            f"[warn] best_metric={best_metric_name} but golden dataset is disabled; "
+            "falling back to val_top1."
+        )
+        best_metric_name = "val_top1"
+
+    best_metric_value = float("-inf")
 
     for epoch in range(1, cfg.schedule.epochs + 1):
         if epoch == cfg.schedule.freeze_epochs + 1:
@@ -467,9 +487,20 @@ def run_training(cfg: TrainConfig) -> None:
                 writer.add_text("golden/examples_table", f"<pre>{table}</pre>", epoch)
 
                 writer.add_image(f"golden/examples_grid_epoch_{epoch:03d}", grid, 0)
-                writer.add_text(f"golden/examples_table_epoch_{epoch:03d}", f"<pre>{table}</pre>", 0)
+            writer.add_text(f"golden/examples_table_epoch_{epoch:03d}", f"<pre>{table}</pre>", 0)
 
         last_path = os.path.join(run_dir, "last.pt")
+        metrics = {
+            "val_top1": val_top1,
+            "val_top5": val_top5,
+            "val_map": val_map,
+            "golden_top1": golden_top1,
+            "golden_top5": golden_top5,
+            "golden_map": golden_map,
+        }
+        current_metric = metrics.get(best_metric_name)
+        if current_metric is None:
+            current_metric = val_top1
         torch.save(
             {
                 "epoch": epoch,
@@ -481,12 +512,14 @@ def run_training(cfg: TrainConfig) -> None:
                 "golden_top1": golden_top1,
                 "golden_top5": golden_top5,
                 "golden_map": golden_map,
+                "best_metric_name": best_metric_name,
+                "best_metric_value": current_metric,
             },
             last_path,
         )
 
-        if val_top1 > best_top1:
-            best_top1 = val_top1
+        if current_metric > best_metric_value:
+            best_metric_value = float(current_metric)
             best_path = os.path.join(run_dir, "best.pt")
             torch.save(
                 {
@@ -499,9 +532,14 @@ def run_training(cfg: TrainConfig) -> None:
                     "golden_top1": golden_top1,
                     "golden_top5": golden_top5,
                     "golden_map": golden_map,
+                    "best_metric_name": best_metric_name,
+                    "best_metric_value": current_metric,
                 },
                 best_path,
             )
-            print(f"[info] saved new best: {best_path} (top1={best_top1:.4f})")
+            print(
+                f"[info] saved new best: {best_path} "
+                f"({best_metric_name}={best_metric_value:.4f})"
+            )
 
     writer.close()
