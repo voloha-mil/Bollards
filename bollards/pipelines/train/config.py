@@ -124,15 +124,80 @@ class OptimConfig:
 
 
 @dataclass
+class CosineAnnealingConfig:
+    t_max: Optional[int] = None
+    eta_min: float = 0.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CosineAnnealingConfig":
+        t_max = data.get("t_max")
+        if t_max is not None:
+            t_max = int(t_max)
+        return cls(
+            t_max=t_max,
+            eta_min=float(data.get("eta_min", 0.0)),
+        )
+
+
+@dataclass
+class ReduceLROnPlateauConfig:
+    monitor: str = "val_top1"
+    mode: str = "max"
+    factor: float = 0.5
+    patience: int = 2
+    threshold: float = 1e-4
+    threshold_mode: str = "rel"
+    cooldown: int = 0
+    min_lr: float | list[float] = 0.0
+    eps: float = 1e-8
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ReduceLROnPlateauConfig":
+        min_lr = data.get("min_lr", 0.0)
+        if isinstance(min_lr, list):
+            min_lr = [float(v) for v in min_lr]
+        else:
+            min_lr = float(min_lr)
+        monitor = data.get("monitor")
+        if monitor is None:
+            monitor = "val_top1"
+        mode = data.get("mode")
+        if mode is None:
+            mode = "max"
+        return cls(
+            monitor=str(monitor),
+            mode=str(mode),
+            factor=float(data.get("factor", 0.5)),
+            patience=int(data.get("patience", 2)),
+            threshold=float(data.get("threshold", 1e-4)),
+            threshold_mode=str(data.get("threshold_mode", "rel")),
+            cooldown=int(data.get("cooldown", 0)),
+            min_lr=min_lr,
+            eps=float(data.get("eps", 1e-8)),
+        )
+
+
+@dataclass
 class ScheduleConfig:
     epochs: int = 15
     freeze_epochs: int = 1
+    lr_scheduler: str = "cosine"
+    cosine: CosineAnnealingConfig = field(default_factory=CosineAnnealingConfig)
+    reduce_on_plateau: ReduceLROnPlateauConfig = field(default_factory=ReduceLROnPlateauConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ScheduleConfig":
+        lr_scheduler = data.get("lr_scheduler")
+        if lr_scheduler is None:
+            lr_scheduler = data.get("scheduler")
+        if not lr_scheduler:
+            lr_scheduler = "cosine"
         return cls(
             epochs=int(data.get("epochs", 15)),
             freeze_epochs=int(data.get("freeze_epochs", 1)),
+            lr_scheduler=str(lr_scheduler),
+            cosine=CosineAnnealingConfig.from_dict(data.get("cosine", {})),
+            reduce_on_plateau=ReduceLROnPlateauConfig.from_dict(data.get("reduce_on_plateau", {})),
         )
 
 

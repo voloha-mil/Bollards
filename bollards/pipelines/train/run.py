@@ -228,11 +228,45 @@ def run_training(cfg: TrainConfig) -> None:
             {"params": head_params, "lr": cfg.optim.lr},
         ]
 
+    def build_scheduler(optimizer: torch.optim.Optimizer, remaining_epochs: int):
+        name = str(cfg.schedule.lr_scheduler or "cosine").strip().lower()
+        if name in ("cosine", "cosineannealing", "cosine_annealing"):
+            t_max = cfg.schedule.cosine.t_max
+            if t_max is None:
+                t_max = max(1, remaining_epochs)
+            if t_max <= 0:
+                raise ValueError("schedule.cosine.t_max must be >= 1")
+            return (
+                torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer,
+                    T_max=t_max,
+                    eta_min=cfg.schedule.cosine.eta_min,
+                ),
+                False,
+            )
+        if name in ("reduce_on_plateau", "plateau", "reduce"):
+            sched_cfg = cfg.schedule.reduce_on_plateau
+            return (
+                torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer,
+                    mode=sched_cfg.mode,
+                    factor=sched_cfg.factor,
+                    patience=sched_cfg.patience,
+                    threshold=sched_cfg.threshold,
+                    threshold_mode=sched_cfg.threshold_mode,
+                    cooldown=sched_cfg.cooldown,
+                    min_lr=sched_cfg.min_lr,
+                    eps=sched_cfg.eps,
+                ),
+                True,
+            )
+        raise ValueError(f"Unknown lr_scheduler: {cfg.schedule.lr_scheduler}")
+
     if cfg.schedule.freeze_epochs > 0:
         model.freeze_backbone()
 
     optimizer = torch.optim.AdamW(param_groups(model), weight_decay=cfg.optim.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.schedule.epochs)
+    scheduler, scheduler_requires_metric = build_scheduler(optimizer, cfg.schedule.epochs)
     scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
 
     writer = SummaryWriter(log_dir=tb_dir)
@@ -274,6 +308,21 @@ def run_training(cfg: TrainConfig) -> None:
         )
         best_metric_name = "val_top1"
 
+    scheduler_monitor = None
+    if scheduler_requires_metric:
+        scheduler_monitor = str(cfg.schedule.reduce_on_plateau.monitor).strip()
+        if scheduler_monitor not in allowed_metrics:
+            raise ValueError(
+                "schedule.reduce_on_plateau.monitor must be one of "
+                f"{sorted(allowed_metrics)} (got {scheduler_monitor})."
+            )
+        if scheduler_monitor.startswith("golden_") and golden_loader is None:
+            print(
+                f"[warn] schedule.reduce_on_plateau.monitor={scheduler_monitor} but golden dataset is disabled; "
+                "falling back to val_top1."
+            )
+            scheduler_monitor = "val_top1"
+
     best_metric_value = float("-inf")
 
     for epoch in range(1, cfg.schedule.epochs + 1):
@@ -281,8 +330,8 @@ def run_training(cfg: TrainConfig) -> None:
             print("[info] unfreezing backbone for fine-tuning")
             model.unfreeze_backbone()
             optimizer = torch.optim.AdamW(param_groups(model), weight_decay=cfg.optim.weight_decay)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=cfg.schedule.epochs - epoch + 1
+            scheduler, scheduler_requires_metric = build_scheduler(
+                optimizer, cfg.schedule.epochs - epoch + 1
             )
 
         train_loss = train_one_epoch(
@@ -303,7 +352,23 @@ def run_training(cfg: TrainConfig) -> None:
             golden_top1, golden_top5, golden_map = evaluate(
                 model, golden_loader, device, desc="golden"
             )
-        scheduler.step()
+        metrics = {
+            "val_top1": val_top1,
+            "val_top5": val_top5,
+            "val_map": val_map,
+            "golden_top1": golden_top1,
+            "golden_top5": golden_top5,
+            "golden_map": golden_map,
+        }
+        if scheduler_requires_metric:
+            scheduler_metric = metrics.get(scheduler_monitor)
+            if scheduler_metric is None:
+                raise ValueError(
+                    f"schedule.reduce_on_plateau.monitor={scheduler_monitor} is unavailable for this run."
+                )
+            scheduler.step(float(scheduler_metric))
+        else:
+            scheduler.step()
 
         lrs = [pg["lr"] for pg in optimizer.param_groups]
         if golden_top1 is None:
@@ -380,14 +445,6 @@ def run_training(cfg: TrainConfig) -> None:
             writer.add_text(f"golden/examples_table_epoch_{epoch:03d}", f"<pre>{table}</pre>", 0)
 
         last_path = os.path.join(run_dir, "last.pt")
-        metrics = {
-            "val_top1": val_top1,
-            "val_top5": val_top5,
-            "val_map": val_map,
-            "golden_top1": golden_top1,
-            "golden_top5": golden_top5,
-            "golden_map": golden_map,
-        }
         current_metric = metrics.get(best_metric_name)
         if current_metric is None:
             current_metric = val_top1
