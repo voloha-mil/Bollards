@@ -4,5 +4,5 @@
   "hf_filename": "models/YOLOv12_traffic-delineator.pt",
   "hf_cache": "./hf_cache",
   "imgsz": 960,
-  "conf": 0.25
+  "conf": 0.30
 }

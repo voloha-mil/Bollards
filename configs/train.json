@@ -13,7 +13,7 @@
     "golden_num_workers": 0,
     "prefetch_factor": 1,
     "persistent_workers": false,
-    "balanced_sampler": false,
+    "balanced_sampler": true,
     "sampler_alpha": 0.5,
     "expand": 2.0,
     "max_train_samples": 100000,
@@ -54,7 +54,7 @@
     "weight_decay": 0.0001,
     "label_smoothing": 0.05,
     "conf_weight_min": 0.2,
-    "class_weighting": true,
+    "class_weighting": false,
     "focal_gamma": 0.0,
     "focal_alpha": null
   },
@@ -65,12 +65,12 @@
   "logging": {
     "out_dir": "runs/bollard_country",
     "tb_dir": null,
-    "run_name": "2712_flip_seed43",
+    "run_name": "30_12_gpu",
     "log_images": 4,
     "log_image_every": 1,
     "tb_font_size": 18,
     "best_metric": "val_top1"
   },
-  "device": "auto",
+  "device": "cuda",
   "seed": 42
 }

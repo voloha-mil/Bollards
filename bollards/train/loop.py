@@ -109,7 +109,7 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         if use_amp:
-            with torch.cuda.amp.autocast():
+            with torch.cuda.amp.autocast(device):
                 logits = model(images, meta)
                 loss_vec = criterion(logits, labels)  # (B,)
         else:
