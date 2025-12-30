@@ -7,7 +7,7 @@
     "golden_csv": "golden_dataset/labels.csv",
     "golden_img_root": "golden_dataset",
     "img_size": 224,
-    "batch_size": 64,
+    "batch_size": 128,
     "num_workers": 4,
     "val_num_workers": 0,
     "golden_num_workers": 0,
@@ -59,7 +59,7 @@
     "focal_alpha": null
   },
   "schedule": {
-    "epochs": 30,
+    "epochs": 60,
     "freeze_epochs": 1
   },
   "logging": {
