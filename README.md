@@ -8,10 +8,10 @@ screen demo for fast iteration.
 
 ## Highlights
 
-- YOLO-based bollard detection with configurable filters.
-- Timm backbone classifier with bbox-geometry metadata conditioning (BollardNet).
+- Uses pretrained YOLO-based bollard detection with configurable filters ([YOLOv12_traffic-delineator](https://huggingface.co/maco018/YOLOv12_traffic-delineator)).
+- Trains timm backbone classifier with bbox-geometry metadata conditioning (BollardNet).
 - End-to-end workflows: OSV-5M mining, dataset prep, training, analysis.
-- Live screen inference with hotkey or stdin trigger and grid viewer.
+- Live screen inference with hotkey trigger and grid viewer.
 - JSON configs with include/override support for reproducible runs.
 
 ## Contents

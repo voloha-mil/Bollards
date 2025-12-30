@@ -73,6 +73,8 @@ def load_filtered_split_df(
     all_df = pd.concat(dfs, ignore_index=True)
 
     all_df = all_df[all_df["split"].astype(str) == str(split_name)].copy()
+    raw_images = all_df["id"].nunique()
+    print(f"[info] {split_name} images before filtering: {raw_images}")
     all_df["n_boxes"] = pd.to_numeric(all_df["n_boxes"], errors="coerce").fillna(0).astype(int)
     all_df = all_df[all_df["n_boxes"] > 0].copy()
     return all_df

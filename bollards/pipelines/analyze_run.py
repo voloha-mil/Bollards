@@ -39,6 +39,8 @@ from bollards.pipelines.analyze.metrics import (
     confusion_pairs as _confusion_pairs,
     dataset_summary as _dataset_summary,
     group_accuracy as _group_accuracy,
+    image_counts_by_country as _image_counts_by_country,
+    image_count_distribution as _image_count_distribution,
     top_bottom as _top_bottom,
     value_counts as _value_counts,
 )
@@ -121,9 +123,21 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         _save_json(main_stats, run_dir / "artifacts" / "main" / "summary.json")
         main_counts = _value_counts(main_df, "country") if "country" in main_df.columns else pd.DataFrame()
         main_region_counts = _value_counts(main_df, "region") if "region" in main_df.columns else pd.DataFrame()
+        main_image_counts = _image_counts_by_country(main_df, "country") if "country" in main_df.columns else pd.DataFrame()
+        main_image_dist = _image_count_distribution(main_image_counts)
 
         _save_csv(main_counts, run_dir / "artifacts" / "main" / "country_counts.csv")
         _save_csv(main_region_counts, run_dir / "artifacts" / "main" / "region_counts.csv")
+        _save_csv(main_image_counts, run_dir / "artifacts" / "main" / "images_per_country.csv")
+        _save_csv(main_image_dist, run_dir / "artifacts" / "main" / "images_per_country_dist.csv")
+
+        if not main_image_counts.empty:
+            _plot_hist(
+                main_image_counts["image_count"],
+                run_dir / "artifacts" / "main" / "images_per_country_hist.png",
+                "Images per country",
+                "images per country",
+            )
 
         if "cls" in main_df.columns:
             main_df["class_name"] = main_df["cls"].astype(int).apply(
@@ -164,6 +178,9 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         if not top_region.empty:
             main_section += "<h3>Top regions</h3>" + _render_table(top_region)
             main_section += "<h3>Bottom regions</h3>" + _render_table(bottom_region)
+        if (run_dir / "artifacts" / "main" / "images_per_country_hist.png").exists():
+            main_section += "<h3>Images per country</h3>"
+            main_section += "<img src='artifacts/main/images_per_country_hist.png' width='420'>"
         main_section += "<h3>Class distribution</h3>" + _render_table(class_counts.head(20))
         main_section += "<h3>Geometry</h3>"
         if (run_dir / "artifacts" / "main" / "bbox_area_hist.png").exists():
@@ -202,8 +219,12 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         _save_json(golden_stats, run_dir / "artifacts" / "golden" / "summary.json")
         golden_country_counts = _value_counts(golden_df, "country")
         golden_region_counts = _value_counts(golden_df, "region") if "region" in golden_df.columns else pd.DataFrame()
+        golden_image_counts = _image_counts_by_country(golden_df, "country")
+        golden_image_dist = _image_count_distribution(golden_image_counts)
         _save_csv(golden_country_counts, run_dir / "artifacts" / "golden" / "country_counts.csv")
         _save_csv(golden_region_counts, run_dir / "artifacts" / "golden" / "region_counts.csv")
+        _save_csv(golden_image_counts, run_dir / "artifacts" / "golden" / "images_per_country.csv")
+        _save_csv(golden_image_dist, run_dir / "artifacts" / "golden" / "images_per_country_dist.csv")
         class_counts = _value_counts(golden_df, "class_name")
         if "class_name" not in class_counts.columns:
             class_counts = pd.DataFrame({"class_name": [], "count": []})
@@ -223,6 +244,14 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                 _plot_hist(sub_geom["crop_area"], run_dir / "artifacts" / "golden" / f"bbox_area_{safe_name}.png", f"BBox area ({cls_name})", "area fraction")
                 _plot_hist(sub_geom["crop_aspect"], run_dir / "artifacts" / "golden" / f"bbox_aspect_{safe_name}.png", f"BBox aspect ({cls_name})", "aspect ratio")
 
+        if not golden_image_counts.empty:
+            _plot_hist(
+                golden_image_counts["image_count"],
+                run_dir / "artifacts" / "golden" / "images_per_country_hist.png",
+                "Images per country",
+                "images per country",
+            )
+
         top_country, bottom_country = _top_bottom(golden_df, "country")
         top_region, bottom_region = _top_bottom(golden_df, "region") if "region" in golden_df.columns else (pd.DataFrame(), pd.DataFrame())
 
@@ -237,6 +266,9 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         if not top_region.empty:
             golden_section += "<h3>Top regions</h3>" + _render_table(top_region)
             golden_section += "<h3>Bottom regions</h3>" + _render_table(bottom_region)
+        if (run_dir / "artifacts" / "golden" / "images_per_country_hist.png").exists():
+            golden_section += "<h3>Images per country</h3>"
+            golden_section += "<img src='artifacts/golden/images_per_country_hist.png' width='420'>"
         golden_section += "<h3>Class distribution</h3>" + _render_table(class_counts.head(20))
         golden_section += "<h3>Geometry</h3>"
         if (run_dir / "artifacts" / "golden" / "bbox_area_hist.png").exists():

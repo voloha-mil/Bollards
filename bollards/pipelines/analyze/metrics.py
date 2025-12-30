@@ -34,6 +34,32 @@ def value_counts(df: pd.DataFrame, col: str) -> pd.DataFrame:
     return counts.reset_index().rename(columns={"index": col, col: "count"})
 
 
+def image_counts_by_country(df: pd.DataFrame, country_col: str) -> pd.DataFrame:
+    if country_col not in df.columns or df.empty:
+        return pd.DataFrame({country_col: [], "image_count": []})
+    image_id = ensure_image_id(df)
+    tmp = df[[country_col]].copy()
+    tmp["image_id"] = image_id.values
+    counts = (
+        tmp.dropna(subset=[country_col])
+        .groupby(country_col)["image_id"]
+        .nunique()
+        .sort_values(ascending=False)
+    )
+    if counts.empty:
+        return pd.DataFrame({country_col: [], "image_count": []})
+    return counts.reset_index().rename(columns={"image_id": "image_count"})
+
+
+def image_count_distribution(image_counts: pd.DataFrame) -> pd.DataFrame:
+    if image_counts.empty or "image_count" not in image_counts.columns:
+        return pd.DataFrame({"images_per_country": [], "n_countries": []})
+    dist = image_counts["image_count"].value_counts().sort_index()
+    if dist.empty:
+        return pd.DataFrame({"images_per_country": [], "n_countries": []})
+    return dist.reset_index().rename(columns={"index": "images_per_country", "image_count": "n_countries"})
+
+
 def top_bottom(df: pd.DataFrame, col: str, n: int = 5) -> Tuple[pd.DataFrame, pd.DataFrame]:
     counts = value_counts(df, col)
     if counts.empty:
