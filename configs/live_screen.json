@@ -4,8 +4,7 @@
     "region": null
   },
   "detector": {
-    "include": "common_detector.json",
-    "conf": 0.10
+    "include": "common_detector.json"
   },
   "filters": {
     "include": "common_filters.json"

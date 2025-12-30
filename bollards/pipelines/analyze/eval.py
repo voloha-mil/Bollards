@@ -133,7 +133,7 @@ def filter_detections(
         cls = float(clss[i])
         x1, y1, x2, y2 = [float(v) for v in boxes_xyxy[i]]
 
-        if conf < cfg.detector.conf:
+        if conf < cfg.detector.min_conf:
             continue
         if allow_set is not None and cls not in allow_set:
             continue
@@ -186,7 +186,7 @@ def run_detector(
             model=detector,
             image_paths=abs_paths,
             imgsz=cfg.detector.imgsz,
-            conf=cfg.detector.conf,
+            conf=cfg.detector.min_conf,
             device=str(device),
             batch=cfg.detector.batch,
         )

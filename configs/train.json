@@ -31,6 +31,13 @@
     "hue": 0.02,
     "blur_p": 0.15,
     "blur_kernel": 3,
+    "sharpness_p": 0.2,
+    "sharpness_factor": 1.5,
+    "erasing_p": 0.1,
+    "erasing_scale_min": 0.02,
+    "erasing_scale_max": 0.2,
+    "erasing_ratio_min": 0.3,
+    "erasing_ratio_max": 3.3,
     "affine_p": 0.5,
     "affine_degrees": 7.0,
     "affine_translate": 0.02,
@@ -38,7 +45,7 @@
     "affine_scale_max": 1.05
   },
   "model": {
-    "backbone_name": "efficientnet_b1",
+    "backbone_name": "efficientnet_b2",
     "pretrained": true,
     "num_classes": 128,
     "img_emb_dropout": 0.2,
@@ -60,7 +67,7 @@
     "focal_alpha": null
   },
   "schedule": {
-    "epochs": 80,
+    "epochs": 50,
     "freeze_epochs": 1,
     "lr_scheduler": "reduce_on_plateau",
     "cosine": {
@@ -84,7 +91,7 @@
     "tb_dir": null,
     "run_name": "30_12_plateu",
     "log_images": 4,
-    "log_image_every": 1,
+    "log_image_every": 5,
     "tb_font_size": 18,
     "best_metric": "val_map"
   },
@@ -106,7 +113,7 @@
     "fail_on_error": false
   },
   "analyze": {
-    "enabled": false,
+    "enabled": true,
     "config_path": "configs/analyze_run.json"
   },
   "device": "cuda",

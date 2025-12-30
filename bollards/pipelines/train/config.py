@@ -65,6 +65,13 @@ class AugmentConfig:
     hue: float = 0.02
     blur_p: float = 0.15
     blur_kernel: int = 3
+    sharpness_p: float = 0.2
+    sharpness_factor: float = 1.5
+    erasing_p: float = 0.1
+    erasing_scale_min: float = 0.02
+    erasing_scale_max: float = 0.2
+    erasing_ratio_min: float = 0.3
+    erasing_ratio_max: float = 3.3
     affine_p: float = 0.5
     affine_degrees: float = 7.0
     affine_translate: float = 0.02
@@ -85,6 +92,13 @@ class AugmentConfig:
             hue=float(data.get("hue", 0.02)),
             blur_p=float(data.get("blur_p", 0.15)),
             blur_kernel=int(data.get("blur_kernel", 3)),
+            sharpness_p=float(data.get("sharpness_p", 0.2)),
+            sharpness_factor=float(data.get("sharpness_factor", 1.5)),
+            erasing_p=float(data.get("erasing_p", 0.1)),
+            erasing_scale_min=float(data.get("erasing_scale_min", 0.02)),
+            erasing_scale_max=float(data.get("erasing_scale_max", 0.2)),
+            erasing_ratio_min=float(data.get("erasing_ratio_min", 0.3)),
+            erasing_ratio_max=float(data.get("erasing_ratio_max", 3.3)),
             affine_p=float(data.get("affine_p", 0.5)),
             affine_degrees=float(data.get("affine_degrees", 7.0)),
             affine_translate=float(data.get("affine_translate", 0.02)),

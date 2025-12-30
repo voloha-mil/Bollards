@@ -24,8 +24,12 @@ def build_transforms(
             crop_max = crop_min
 
         ops = [
-            transforms.Resize((resize_size, resize_size)),
-            transforms.RandomResizedCrop(img_size, scale=(crop_min, crop_max)),
+            transforms.Resize((resize_size, resize_size), interpolation=InterpolationMode.BICUBIC),
+            transforms.RandomResizedCrop(
+                img_size,
+                scale=(crop_min, crop_max),
+                interpolation=InterpolationMode.BICUBIC,
+            ),
         ]
 
         if augment.affine_p > 0:
@@ -41,7 +45,7 @@ def build_transforms(
                 degrees=float(augment.affine_degrees),
                 translate=translate,
                 scale=scale,
-                interpolation=InterpolationMode.BILINEAR,
+                interpolation=InterpolationMode.BICUBIC,
                 fill=0,
             )
             ops.append(transforms.RandomApply([affine], p=float(augment.affine_p)))
@@ -59,6 +63,14 @@ def build_transforms(
                 )
             )
 
+        if augment.sharpness_p > 0:
+            ops.append(
+                transforms.RandomAdjustSharpness(
+                    sharpness_factor=float(augment.sharpness_factor),
+                    p=float(augment.sharpness_p),
+                )
+            )
+
         if augment.blur_p > 0:
             ops.append(
                 transforms.RandomApply(
@@ -71,10 +83,28 @@ def build_transforms(
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ])
+
+        if augment.erasing_p > 0:
+            scale_min = float(augment.erasing_scale_min)
+            scale_max = float(augment.erasing_scale_max)
+            if scale_max < scale_min:
+                scale_max = scale_min
+            ratio_min = float(augment.erasing_ratio_min)
+            ratio_max = float(augment.erasing_ratio_max)
+            if ratio_max < ratio_min:
+                ratio_max = ratio_min
+            ops.append(
+                transforms.RandomErasing(
+                    p=float(augment.erasing_p),
+                    scale=(scale_min, scale_max),
+                    ratio=(ratio_min, ratio_max),
+                    value=0,
+                )
+            )
         return transforms.Compose(ops)
 
     return transforms.Compose([
-        transforms.Resize((img_size, img_size)),
+        transforms.Resize((img_size, img_size), interpolation=InterpolationMode.BICUBIC),
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ])

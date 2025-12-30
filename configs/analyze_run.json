@@ -3,7 +3,7 @@
     "main_csv": "local_data/meta/merged_boxes.csv",
     "main_img_root": "local_data",
     "main_val_csv": "local_data/meta/val.csv",
-    "training_run_dir": "runs/bollard_country/30_12_double_layer",
+    "training_run_dir": "runs/bollard_country/30_12_plateu",
     "golden_csv": "golden_dataset/labels.csv",
     "golden_img_root": "golden_dataset",
     "country_map_json": null,
@@ -25,7 +25,7 @@
   "output": {
     "out_dir": "runs/analyze_run",
     "run_name": null,
-    "gallery_size": 6,
+    "gallery_size": 8,
     "gallery_per_category": 4,
     "top_k": 5,
     "min_support": 5,

@@ -213,7 +213,7 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
             model=detector,
             image_path=screen_path,
             imgsz=cfg.detector.imgsz,
-            conf=cfg.detector.conf,
+            conf=cfg.filters.min_conf,
             device=str(device),
         )
         if not results:

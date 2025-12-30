@@ -29,7 +29,6 @@ class LiveScreenDetectorConfig:
     hf_filename: str = "models/YOLOv12_traffic-delineator.pt"
     hf_cache: str = "./hf_cache"
     imgsz: int = 960
-    conf: float = 0.25
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LiveScreenDetectorConfig":
@@ -45,7 +44,6 @@ class LiveScreenDetectorConfig:
             hf_filename=str(data.get("hf_filename", HF_MODEL_FILENAME)),
             hf_cache=str(data.get("hf_cache", "./hf_cache")),
             imgsz=int(data.get("imgsz", 960)),
-            conf=float(data.get("conf", 0.25)),
         )
 
 

@@ -39,7 +39,7 @@ class AnalyzeRunDetectorConfig:
     hf_filename: str = "models/YOLOv12_traffic-delineator.pt"
     hf_cache: str = "./hf_cache"
     imgsz: int = 960
-    conf: float = 0.25
+    min_conf: float = 0.4
     batch: int = 8
     max_images: int = 0
     cls_allow: Optional[list[float]] = None
@@ -57,7 +57,7 @@ class AnalyzeRunDetectorConfig:
             hf_filename=str(data.get("hf_filename", "models/YOLOv12_traffic-delineator.pt")),
             hf_cache=str(data.get("hf_cache", "./hf_cache")),
             imgsz=int(data.get("imgsz", 960)),
-            conf=float(data.get("conf", 0.25)),
+            min_conf=float(data.get("min_conf", cls.min_conf)),
             batch=int(data.get("batch", 8)),
             max_images=int(data.get("max_images", 0)),
             cls_allow=data.get("cls_allow"),

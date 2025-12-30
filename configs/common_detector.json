@@ -3,6 +3,5 @@
   "hf_repo": "maco018/YOLOv12_traffic-delineator",
   "hf_filename": "models/YOLOv12_traffic-delineator.pt",
   "hf_cache": "./hf_cache",
-  "imgsz": 960,
-  "conf": 0.30
+  "imgsz": 960
 }
