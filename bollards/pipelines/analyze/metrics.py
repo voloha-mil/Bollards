@@ -57,7 +57,10 @@ def image_count_distribution(image_counts: pd.DataFrame) -> pd.DataFrame:
     dist = image_counts["image_count"].value_counts().sort_index()
     if dist.empty:
         return pd.DataFrame({"images_per_country": [], "n_countries": []})
-    return dist.reset_index().rename(columns={"index": "images_per_country", "image_count": "n_countries"})
+    dist = dist.reset_index()
+    if len(dist.columns) == 2:
+        dist.columns = ["images_per_country", "n_countries"]
+    return dist
 
 
 def top_bottom(df: pd.DataFrame, col: str, n: int = 5) -> Tuple[pd.DataFrame, pd.DataFrame]:
