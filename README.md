@@ -17,9 +17,11 @@ screen demo for fast iteration.
 ## Contents
 
 - [Visuals (placeholders)](#visuals-placeholders)
+- [What is a bollard?](#what-is-a-bollard)
 - [Quickstart](#quickstart)
 - [Pipeline](#pipeline)
 - [Workflows](#workflows)
+- [Training overview](#training-overview)
 - [Configuration](#configuration)
 - [Data and Storage](#data-and-storage)
 - [Results (placeholders)](#results-placeholders)
@@ -38,6 +40,14 @@ Add assets under `docs/assets/` (or update paths to your preferred location).
 ![Training curves](docs/assets/training_curves.png)
 ![Confusion matrix](docs/assets/confusion_matrix.png)
 ![Live screen demo](docs/assets/live_screen_demo.gif)
+
+## What is a bollard?
+
+Bollards are short, vertical posts placed to guide traffic or protect pedestrians.
+They vary by shape, material, reflectors, and spacing across regions, making them
+a useful visual cue for country classification.
+
+![Bollard examples](docs/assets/bollard_examples.png)
 
 ## Quickstart
 
@@ -76,47 +86,29 @@ metadata for improved discrimination.
 
 All entrypoints accept `--config` and `--set` overrides. Defaults live in `configs/`.
 
-### Mine OSV-5M for bollards
+- Mine OSV-5M: run the detector and build a filtered dataset index (optional S3 artifacts).
+- Prepare local dataset: download/filter crops and write `local_data/images/` + `local_data/meta/`.
+- Train: fit the classifier and save checkpoints + TensorBoard logs to `runs/`.
+- Analyze: generate reports and galleries for a run.
+- Live screen: capture the desktop, detect bollards, and render a prediction grid.
 
-```bash
-python scripts/mine_osv5m.py --config configs/mine_osv5m.json
-```
+## Training overview
 
-Outputs a filtered dataset index under `filtered_dataset_osv5m/` and, when enabled,
-optional S3 artifacts (images, annotations, and state).
+The training loop builds a classifier on bollard crops plus bbox metadata:
 
-### Prepare a local training dataset
-
-```bash
-python scripts/prepare_local_dataset.py --config configs/prepare_local_dataset.json
-```
-
-Writes `local_data/images/` and `local_data/meta/` (train/val CSVs, country maps).
-
-### Train the classifier
-
-```bash
-python scripts/train.py --config configs/train.json
-```
-
-Checkpoints and TensorBoard logs are stored under `runs/bollard_country/`.
-
-### Analyze a run
-
-```bash
-python scripts/analyze_run.py --config configs/analyze_run.json
-```
-
-Produces reports and galleries in `runs/analyze_run/`.
-
-### Live screen classification
-
-```bash
-python scripts/live_screen.py --config configs/live_screen.json
-```
-
-Captures a screen region, detects bollards, and displays a prediction grid.
-Outputs are written under `runs/live_screen/`.
+- **Data inputs**: `local_data/meta/train.csv` and `local_data/meta/val.csv` include
+  image paths, labels, bbox coordinates, and detection confidence.
+- **Preprocessing**: crops are expanded (`data.expand`) and augmented when enabled
+  (resize/pad, random crop, flips, color jitter, blur, affine).
+- **Model**: a timm backbone for image features plus a small MLP for bbox meta
+  (`x_center`, `y_center`, `w`, `h`, `conf`), then a fused classification head.
+- **Loss**: cross-entropy with label smoothing by default, optionally focal loss;
+  per-sample weights are scaled by bbox confidence and clamped by `optim.conf_weight_min`.
+- **Imbalance handling**: choose **one** of balanced sampling, class weighting, or focal loss.
+- **Optimization**: AdamW with separate learning rates for backbone/head and cosine
+  annealing; optional backbone freeze for the first `schedule.freeze_epochs`.
+- **Metrics & checkpoints**: top-1, top-5, and mAP; best checkpoint is selected by
+  `logging.best_metric`. Optional golden dataset eval adds extra metrics and grids.
 
 ## Configuration
 
