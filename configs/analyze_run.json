@@ -11,14 +11,10 @@
     "golden_default_category": "bollard"
   },
   "detector": {
-    "include": "common_detector.json",
+    "include": ["common_detector.json", "common_filters.json"],
     "enabled": false,
     "batch": 8,
     "max_images": 0,
-    "cls_allow": null,
-    "min_box_w_px": 0.0,
-    "min_box_h_px": 0.0,
-    "max_boxes_per_image": 1,
     "class_names": null
   },
   "classifier": {

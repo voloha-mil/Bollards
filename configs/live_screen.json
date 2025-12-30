@@ -14,7 +14,6 @@
     "include": "common_classifier.json",
     "checkpoint_path": "runs/bollard_country/fixed_seeds_01/best.pt",
     "country_map_json": "runs/bollard_country/fixed_seeds_01/country_map.json",
-    "min_class_conf": 0.02,
     "topk": 3
   },
   "output": {

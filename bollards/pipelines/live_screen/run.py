@@ -267,9 +267,6 @@ def run_live_screen(cfg: LiveScreenConfig) -> None:
                 for idx in top_idx
             ]
 
-            # if top1_prob < cfg.classifier.min_class_conf:
-            #     continue # TODO fix this
-            
             accepted_total += 1
             sum_top1_conf += top1_prob
             sum_probs += prob_vec

@@ -168,7 +168,9 @@ Add benchmark numbers and visuals as they become available.
 
 ## Project Layout
 
-- `bollards/`: core library (data, models, training, pipelines, io)
+- `bollards/`: core library (data, models, pipelines, utils)
+- `bollards/pipelines/`: per-pipeline entrypoints (`analyze`, `train`, `osv5m`, `local_dataset`, `live_screen`)
+- `bollards/utils/`: shared helpers (config loader, io, visuals, runtime)
 - `scripts/`: CLI entrypoints
 - `configs/`: default configs and shared includes
 - `tests/`: unit tests

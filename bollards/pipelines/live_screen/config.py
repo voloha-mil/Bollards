@@ -74,7 +74,6 @@ class LiveScreenClassifierConfig:
     country_map_json: Optional[str] = None
     img_size: int = 224
     expand: float = 2.0
-    min_class_conf: float = 0.6
     topk: int = 3
 
     @classmethod
@@ -84,7 +83,6 @@ class LiveScreenClassifierConfig:
             country_map_json=data.get("country_map_json"),
             img_size=int(data.get("img_size", 224)),
             expand=float(data.get("expand", 2.0)),
-            min_class_conf=float(data.get("min_class_conf", 0.6)),
             topk=int(data.get("topk", 3)),
         )
 
