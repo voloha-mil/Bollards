@@ -21,11 +21,21 @@ def save_json(obj: Any, path: Path) -> None:
 def render_table(df: pd.DataFrame) -> str:
     if df.empty:
         return "<p>No data.</p>"
-    return df.to_html(index=False, escape=True)
+    return "<div class='table-wrap'>" + df.to_html(index=False, escape=True) + "</div>"
 
 
 def build_report_section(title: str, body: str) -> str:
-    return f"<section><h2>{title}</h2>{body}</section>"
+    return f"<section class='section-card'><h2>{title}</h2>{body}</section>"
+
+
+def render_table_grid(tables: list[tuple[str, pd.DataFrame]]) -> str:
+    if not tables:
+        return ""
+    cards = []
+    for title, df in tables:
+        heading = f"<h4>{title}</h4>" if title else ""
+        cards.append(f"<div class='table-card'>{heading}{render_table(df)}</div>")
+    return "<div class='table-grid'>" + "".join(cards) + "</div>"
 
 
 def relative_paths(paths: list[str], base_dir: Path) -> list[str]:

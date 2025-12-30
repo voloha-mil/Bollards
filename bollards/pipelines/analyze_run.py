@@ -21,6 +21,7 @@ from bollards.pipelines.analyze.images import draw_boxes as _draw_boxes, make_co
 from bollards.pipelines.analyze.io import (
     build_report_section as _build_report_section,
     relative_paths as _relative_paths,
+    render_table_grid as _render_table_grid,
     render_table as _render_table,
     save_csv as _save_csv,
     save_json as _save_json,
@@ -51,6 +52,34 @@ from bollards.utils.seeding import make_python_rng, seed_everything
 
 def setup_logger(log_path: Path):
     return _setup_logger("analyze_run", log_path)
+
+
+def _compute_class_counts(
+    df: pd.DataFrame,
+    *,
+    default_class: str,
+    class_names: list[str] | None,
+) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame({"class_name": [], "count": []})
+
+    if "cls" in df.columns:
+        cls_series = pd.to_numeric(df["cls"], errors="coerce").dropna()
+        if not cls_series.empty:
+            counts = cls_series.astype(int).value_counts().reset_index()
+            counts = counts.rename(columns={"index": "class_id", "cls": "count"})
+            counts["class_name"] = counts["class_id"].apply(lambda x: _class_name(x, class_names))
+            return counts[["class_name", "count"]]
+
+    if "class_name" in df.columns:
+        counts = _value_counts(df, "class_name")
+        if not counts.empty:
+            return counts
+
+    if default_class:
+        return pd.DataFrame({"class_name": [default_class], "count": [len(df)]})
+
+    return pd.DataFrame({"class_name": [], "count": []})
 
 
 def _build_region_map(cfg: AnalyzeRunConfig, golden_df: pd.DataFrame | None):
@@ -145,9 +174,11 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             )
         else:
             main_df["class_name"] = cfg.data.golden_default_category
-        class_counts = _value_counts(main_df, "class_name")
-        if "class_name" not in class_counts.columns:
-            class_counts = pd.DataFrame({"class_name": [], "count": []})
+        class_counts = _compute_class_counts(
+            main_df,
+            default_class=cfg.data.golden_default_category,
+            class_names=cfg.detector.class_names,
+        )
         _save_csv(class_counts, run_dir / "artifacts" / "main" / "class_counts.csv")
 
         area_aspect = _calc_bbox_area_aspect(main_df, "bbox")
@@ -173,11 +204,17 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         if "n_regions" in main_stats:
             main_section += f" | Regions: {main_stats['n_regions']}"
         main_section += "</p>"
-        main_section += "<h3>Top countries</h3>" + _render_table(top_country)
-        main_section += "<h3>Bottom countries</h3>" + _render_table(bottom_country)
+        main_section += "<h3>Top/bottom countries</h3>"
+        main_section += _render_table_grid([
+            ("Top countries", top_country),
+            ("Bottom countries", bottom_country),
+        ])
         if not top_region.empty:
-            main_section += "<h3>Top regions</h3>" + _render_table(top_region)
-            main_section += "<h3>Bottom regions</h3>" + _render_table(bottom_region)
+            main_section += "<h3>Top/bottom regions</h3>"
+            main_section += _render_table_grid([
+                ("Top regions", top_region),
+                ("Bottom regions", bottom_region),
+            ])
         if (run_dir / "artifacts" / "main" / "images_per_country_hist.png").exists():
             main_section += "<h3>Images per country</h3>"
             main_section += "<img src='artifacts/main/images_per_country_hist.png' width='420'>"
@@ -225,9 +262,11 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         _save_csv(golden_region_counts, run_dir / "artifacts" / "golden" / "region_counts.csv")
         _save_csv(golden_image_counts, run_dir / "artifacts" / "golden" / "images_per_country.csv")
         _save_csv(golden_image_dist, run_dir / "artifacts" / "golden" / "images_per_country_dist.csv")
-        class_counts = _value_counts(golden_df, "class_name")
-        if "class_name" not in class_counts.columns:
-            class_counts = pd.DataFrame({"class_name": [], "count": []})
+        class_counts = _compute_class_counts(
+            golden_df,
+            default_class=cfg.data.golden_default_category,
+            class_names=cfg.detector.class_names,
+        )
         _save_csv(class_counts, run_dir / "artifacts" / "golden" / "class_counts.csv")
 
         golden_geom = _calc_crop_area_aspect(golden_df, "crop")
@@ -261,11 +300,17 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         if "n_regions" in golden_stats:
             golden_section += f" | Regions: {golden_stats['n_regions']}"
         golden_section += "</p>"
-        golden_section += "<h3>Top countries</h3>" + _render_table(top_country)
-        golden_section += "<h3>Bottom countries</h3>" + _render_table(bottom_country)
+        golden_section += "<h3>Top/bottom countries</h3>"
+        golden_section += _render_table_grid([
+            ("Top countries", top_country),
+            ("Bottom countries", bottom_country),
+        ])
         if not top_region.empty:
-            golden_section += "<h3>Top regions</h3>" + _render_table(top_region)
-            golden_section += "<h3>Bottom regions</h3>" + _render_table(bottom_region)
+            golden_section += "<h3>Top/bottom regions</h3>"
+            golden_section += _render_table_grid([
+                ("Top regions", top_region),
+                ("Bottom regions", bottom_region),
+            ])
         if (run_dir / "artifacts" / "golden" / "images_per_country_hist.png").exists():
             golden_section += "<h3>Images per country</h3>"
             golden_section += "<img src='artifacts/golden/images_per_country_hist.png' width='420'>"
@@ -465,12 +510,16 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             if "top1_region" in metrics:
                 section += "<p>Top-1 region: {:.3f} | Top-5 region: {:.3f}</p>".format(metrics.get("top1_region", 0.0), metrics.get("top5_region", 0.0))
             section += "<h3>Best/worst countries</h3>"
-            section += "<h4>Worst</h4>" + _render_table(country_groups.head(cfg.output.top_k))
-            section += "<h4>Best</h4>" + _render_table(country_groups.tail(cfg.output.top_k))
+            section += _render_table_grid([
+                ("Worst", country_groups.head(cfg.output.top_k)),
+                ("Best", country_groups.tail(cfg.output.top_k)),
+            ])
             if not region_groups.empty:
                 section += "<h3>Best/worst regions</h3>"
-                section += "<h4>Worst</h4>" + _render_table(region_groups.head(cfg.output.top_k))
-                section += "<h4>Best</h4>" + _render_table(region_groups.tail(cfg.output.top_k))
+                section += _render_table_grid([
+                    ("Worst", region_groups.head(cfg.output.top_k)),
+                    ("Best", region_groups.tail(cfg.output.top_k)),
+                ])
             section += "<h3>Top confusion pairs (country)</h3>" + _render_table(country_conf)
             if not region_conf.empty:
                 section += "<h3>Top confusion pairs (region)</h3>" + _render_table(region_conf)
@@ -576,12 +625,16 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                 if "top1_region" in metrics:
                     section += "<p>Top-1 region: {:.3f} | Top-5 region: {:.3f}</p>".format(metrics.get("top1_region", 0.0), metrics.get("top5_region", 0.0))
                 section += "<h3>Best/worst countries</h3>"
-                section += "<h4>Worst</h4>" + _render_table(country_groups.head(cfg.output.top_k))
-                section += "<h4>Best</h4>" + _render_table(country_groups.tail(cfg.output.top_k))
+                section += _render_table_grid([
+                    ("Worst", country_groups.head(cfg.output.top_k)),
+                    ("Best", country_groups.tail(cfg.output.top_k)),
+                ])
                 if not region_groups.empty:
                     section += "<h3>Best/worst regions</h3>"
-                    section += "<h4>Worst</h4>" + _render_table(region_groups.head(cfg.output.top_k))
-                    section += "<h4>Best</h4>" + _render_table(region_groups.tail(cfg.output.top_k))
+                    section += _render_table_grid([
+                        ("Worst", region_groups.head(cfg.output.top_k)),
+                        ("Best", region_groups.tail(cfg.output.top_k)),
+                    ])
                 section += "<h3>Top confusion pairs (country)</h3>" + _render_table(country_conf)
                 if not region_conf.empty:
                     section += "<h3>Top confusion pairs (region)</h3>" + _render_table(region_conf)
@@ -602,23 +655,133 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
 
     css = """
     <style>
-    body { font-family: Arial, sans-serif; margin: 24px; color: #1b1b1b; }
-    h1 { margin-bottom: 0; }
-    h2 { margin-top: 32px; }
-    h3 { margin-top: 20px; }
-    table { border-collapse: collapse; margin: 12px 0; }
-    th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 13px; }
-    th { background: #f5f5f5; }
-    img { margin: 6px; border: 1px solid #ddd; max-width: 100%; height: auto; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+    :root {
+      --bg: #f4f0e6;
+      --bg-accent: #e7f0eb;
+      --ink: #1f2b24;
+      --muted: #5c6b5f;
+      --card: #ffffff;
+      --accent: #2c6f5f;
+      --accent-2: #c89b3c;
+      --border: #e2ddd2;
+      --shadow: 0 14px 28px rgba(20, 26, 21, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Source Sans 3", "Noto Sans", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at top left, #faf6ef 0%, var(--bg) 45%, var(--bg-accent) 100%);
+    }
+    .page { max-width: 1200px; margin: 0 auto; padding: 28px; }
+    .page-header {
+      padding: 24px 26px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: linear-gradient(135deg, #fef9f0 0%, #f0f7f4 100%);
+      box-shadow: var(--shadow);
+      margin-bottom: 26px;
+    }
+    .eyebrow { text-transform: uppercase; letter-spacing: 0.14em; font-size: 11px; color: var(--muted); margin: 0 0 8px; }
+    h1 {
+      font-family: "Fraunces", "Iowan Old Style", "Georgia", serif;
+      font-size: 34px;
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+    h2 {
+      font-size: 22px;
+      margin: 0 0 14px;
+      color: var(--accent);
+    }
+    h3 { font-size: 18px; margin: 20px 0 10px; }
+    h4 {
+      margin: 4px 0 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+    p { margin: 8px 0; color: var(--ink); }
+    .meta { color: var(--muted); margin: 0; }
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: rgba(44, 111, 95, 0.12);
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 12px;
+    }
+    section.section-card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 20px 22px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+    .table-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+    .table-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 8px 18px rgba(15, 20, 17, 0.06);
+    }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    th {
+      text-align: left;
+      background: #f7f4ea;
+      font-weight: 600;
+      color: #2d3b32;
+    }
+    tr:nth-child(even) { background: #fbfaf7; }
+    img {
+      margin: 8px 8px 8px 0;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 20px rgba(18, 24, 20, 0.08);
+      max-width: 100%;
+      height: auto;
+      background: #fff;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+    }
     .grid img { width: 100%; height: auto; display: block; margin: 0; }
-    section { margin-bottom: 32px; }
+    @media (max-width: 720px) {
+      .page { padding: 18px; }
+      .page-header { padding: 18px; }
+      h1 { font-size: 28px; }
+    }
     </style>
     """
 
-    header = f"<h1>Single-run analysis</h1><p>Run: {run_dir.name}</p><p>{region_note}</p>"
-    body = header + "\n".join(report_sections)
-    html = f"<!doctype html><html><head><meta charset='utf-8'>{css}</head><body>{body}</body></html>"
+    header = (
+        "<header class='page-header'>"
+        "<p class='eyebrow'>Bollards report</p>"
+        "<h1>Single-run analysis</h1>"
+        f"<p class='meta'>Run <span class='badge'>{run_dir.name}</span></p>"
+        f"<p class='meta'>{region_note}</p>"
+        "</header>"
+    )
+    body = "<div class='page'>" + header + "\n".join(report_sections) + "</div>"
+    html = (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"{css}</head><body>{body}</body></html>"
+    )
     report_path = run_dir / "report.html"
     report_path.write_text(html, encoding="utf-8")
 
