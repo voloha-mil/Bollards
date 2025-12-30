@@ -60,9 +60,9 @@
     "focal_alpha": null
   },
   "schedule": {
-    "epochs": 70,
+    "epochs": 80,
     "freeze_epochs": 1,
-    "lr_scheduler": "cosine",
+    "lr_scheduler": "reduce_on_plateau",
     "cosine": {
       "t_max": null,
       "eta_min": 0.0
@@ -82,7 +82,7 @@
   "logging": {
     "out_dir": "runs/bollard_country",
     "tb_dir": null,
-    "run_name": "30_12_hfpush",
+    "run_name": "30_12_plateu",
     "log_images": 4,
     "log_image_every": 1,
     "tb_font_size": 18,

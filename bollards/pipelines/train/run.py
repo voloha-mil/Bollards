@@ -344,12 +344,19 @@ def run_training(cfg: TrainConfig) -> None:
             conf_weight_min=cfg.optim.conf_weight_min,
         )
 
-        val_top1, val_top5, val_map = evaluate(model, val_loader, device, desc="val")
+        val_loss, val_top1, val_top5, val_map = evaluate(
+            model,
+            val_loader,
+            device,
+            desc="val",
+            criterion=criterion,
+            conf_weight_min=cfg.optim.conf_weight_min,
+        )
         golden_top1 = None
         golden_top5 = None
         golden_map = None
         if golden_loader is not None:
-            golden_top1, golden_top5, golden_map = evaluate(
+            _, golden_top1, golden_top5, golden_map = evaluate(
                 model, golden_loader, device, desc="golden"
             )
         metrics = {
@@ -385,6 +392,8 @@ def run_training(cfg: TrainConfig) -> None:
             )
 
         writer.add_scalar("train/loss", train_loss, epoch)
+        if val_loss is not None:
+            writer.add_scalar("val/loss", val_loss, epoch)
         writer.add_scalar("val/top1", val_top1, epoch)
         writer.add_scalar("val/top5", val_top5, epoch)
         writer.add_scalar("val/map", val_map, epoch)

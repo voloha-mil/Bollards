@@ -1,5 +1,5 @@
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -45,13 +45,17 @@ def evaluate(
     loader: DataLoader,
     device: torch.device,
     desc: str = "val",
-) -> Tuple[float, float, float]:
+    criterion: Optional[nn.Module] = None,
+    conf_weight_min: float = 0.0,
+) -> Tuple[Optional[float], float, float, float]:
     model.eval()
     correct1 = 0
     correct5 = 0
     total = 0
     all_logits = []
     all_labels = []
+    running_loss = 0.0
+    n = 0
 
     pbar = tqdm(loader, desc=desc, leave=False, dynamic_ncols=True)
     with torch.no_grad():
@@ -61,6 +65,13 @@ def evaluate(
             labels = batch["label"].to(device, non_blocking=True)
 
             logits = model(images, meta)
+            if criterion is not None:
+                loss_vec = criterion(logits, labels)
+                conf = meta[:, -1].detach()
+                w = torch.clamp(conf, min=conf_weight_min, max=1.0)
+                loss = (loss_vec * w).mean()
+                running_loss += float(loss.item()) * labels.size(0)
+                n += labels.size(0)
             total += labels.size(0)
 
             pred1 = logits.argmax(dim=1)
@@ -76,6 +87,7 @@ def evaluate(
                 f"top1={correct1/max(total,1):.3f} top5={correct5/max(total,1):.3f}"
             )
 
+    avg_loss = (running_loss / max(n, 1)) if criterion is not None else None
     if all_logits:
         logits = torch.cat(all_logits, dim=0)
         labels = torch.cat(all_labels, dim=0)
@@ -83,7 +95,7 @@ def evaluate(
     else:
         mean_ap = 0.0
 
-    return correct1 / max(total, 1), correct5 / max(total, 1), mean_ap
+    return avg_loss, correct1 / max(total, 1), correct5 / max(total, 1), mean_ap
 
 
 def train_one_epoch(
