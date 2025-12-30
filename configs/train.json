@@ -46,6 +46,7 @@
     "meta_hidden": 64,
     "meta_dropout": 0.0,
     "head_hidden": 256,
+    "head_layers": 2,
     "head_dropout": 0.2
   },
   "optim": {
@@ -65,7 +66,7 @@
   "logging": {
     "out_dir": "runs/bollard_country",
     "tb_dir": null,
-    "run_name": "30_12_gpu_43",
+    "run_name": "30_12_double_layer",
     "log_images": 4,
     "log_image_every": 1,
     "tb_font_size": 18,

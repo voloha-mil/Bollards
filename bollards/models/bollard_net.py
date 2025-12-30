@@ -20,6 +20,7 @@ class ModelConfig:
 
     # head
     head_hidden: int = 256
+    head_layers: int = 1
     head_dropout: float = 0.2
 
 
@@ -53,13 +54,21 @@ class BollardNet(nn.Module):
             nn.Dropout(p=cfg.meta_dropout),
         )
 
-        self.head = nn.Sequential(
-            nn.Dropout(p=cfg.img_emb_dropout),
-            nn.Linear(feat_dim + cfg.meta_hidden, cfg.head_hidden),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=cfg.head_dropout),
-            nn.Linear(cfg.head_hidden, cfg.num_classes),
-        )
+        self.head = self._build_head(feat_dim)
+
+    def _build_head(self, feat_dim: int) -> nn.Sequential:
+        if self.cfg.head_layers < 0:
+            raise ValueError("head_layers must be >= 0")
+
+        layers: list[nn.Module] = [nn.Dropout(p=self.cfg.img_emb_dropout)]
+        in_dim = feat_dim + self.cfg.meta_hidden
+        for _ in range(self.cfg.head_layers):
+            layers.append(nn.Linear(in_dim, self.cfg.head_hidden))
+            layers.append(nn.ReLU(inplace=True))
+            layers.append(nn.Dropout(p=self.cfg.head_dropout))
+            in_dim = self.cfg.head_hidden
+        layers.append(nn.Linear(in_dim, self.cfg.num_classes))
+        return nn.Sequential(*layers)
 
     def _infer_feat_dim(self) -> int:
         if hasattr(self.backbone, "num_features"):
