@@ -14,18 +14,19 @@ import numpy as np
 import torch
 from PIL import Image
 
-from bollards.config import LiveScreenConfig
+from bollards.pipelines.live_screen.config import LiveScreenConfig
 from bollards.data.labels import load_id_to_country
 from bollards.data.transforms import build_transforms
-from bollards.detect.yolo import run_inference
-from bollards.io.fs import ensure_dir
-from bollards.live.visuals import GridItem, GridViewer, render_grid
+from bollards.models.detector_yolo import run_inference
+from bollards.utils.io.fs import ensure_dir
+from bollards.utils.visuals.live_screen import GridItem, GridViewer, render_grid
 from bollards.data.bboxes import (
     bbox_xyxy_norm_to_center,
     crop_image_from_norm_bbox,
     normalize_bbox_xyxy_px,
 )
-from bollards.pipelines.common import load_classifier, load_detector, resolve_device, setup_logger
+from bollards.models.loaders import load_classifier, load_detector
+from bollards.utils.runtime import resolve_device, setup_logger
 
 
 def _capture_screen(sct, cfg: LiveScreenConfig) -> Image.Image:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from bollards.io.s3 import s3_download_file_if_exists, s3_key, s3_upload_file
+from bollards.utils.io.s3 import s3_download_file_if_exists, s3_key, s3_upload_file
 
 
 def restore_state_from_s3(*, bucket: str, prefix: str, split: str, filtered_dir: Path, logger: logging.Logger) -> None:

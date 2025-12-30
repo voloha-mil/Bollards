@@ -1,6 +1,6 @@
 import unittest
 
-from bollards.io.s3 import s3_key
+from bollards.utils.io.s3 import s3_key
 
 
 class TestS3Key(unittest.TestCase):

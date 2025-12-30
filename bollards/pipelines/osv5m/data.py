@@ -9,9 +9,9 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from .osv5m_common import Cursor, HF_DATASET_REPO, LoadedBatch, Meta, ShardCache
-from bollards.io.fs import ensure_dir
-from bollards.io.hf import hf_download_dataset_file
+from .common import Cursor, HF_DATASET_REPO, LoadedBatch, Meta, ShardCache
+from bollards.utils.io.fs import ensure_dir
+from bollards.utils.io.hf import hf_download_dataset_file
 
 
 def load_metadata_map(cache_dir: Path, meta_mode: str, logger: logging.Logger) -> Optional[dict[str, Meta]]:

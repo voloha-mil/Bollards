@@ -12,11 +12,11 @@ import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
-from bollards.config import PrepareLocalDatasetConfig
+from bollards.pipelines.local_dataset.config import PrepareLocalDatasetConfig
 from bollards.constants import LOCAL_DATASET_OUT_COLS, LOCAL_DATASET_REQUIRED_COLS
 from bollards.data.bboxes import normalize_bbox_xyxy_px
-from bollards.io.fs import ensure_dir
-from bollards.io.s3 import s3_download_file as s3_download_file_raw, s3_list_keys
+from bollards.utils.io.fs import ensure_dir
+from bollards.utils.io.s3 import s3_download_file as s3_download_file_raw, s3_list_keys
 from bollards.utils.seeding import make_python_rng
 
 

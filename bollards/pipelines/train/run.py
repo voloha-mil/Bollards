@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import shutil
 from dataclasses import asdict
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, Optional, Tuple
 
 import pandas as pd
 import torch
@@ -15,232 +12,25 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from bollards.config import TrainConfig
-from bollards.constants import BBOX_COLS, LABEL_COL, META_COLS, PATH_COL
-from bollards.data.country_names import golden_country_to_code
+from bollards.pipelines.train.config import TrainConfig
+from bollards.constants import LABEL_COL, META_COLS
 from bollards.data.bboxes import compute_avg_bbox_wh
 from bollards.data.datasets import BollardCropsDataset
 from bollards.data.labels import load_id_to_country
 from bollards.data.samplers import make_sampler
 from bollards.data.transforms import build_transforms
-from bollards.io.hf import hf_upload_run_artifacts
-from bollards.models.bollard_net import BollardNet
-from bollards.train.losses import FocalLoss
-from bollards.train.loop import evaluate, train_one_epoch
-from bollards.train.visuals import annotate_grid_images
+from bollards.pipelines.train.data import (
+    _build_country_mappings,
+    _compute_sqrt_inv_class_weights,
+    _prepare_golden_df,
+    _sample_diverse_rows,
+)
+from bollards.pipelines.train.hub import _maybe_push_best_to_hf, _sanitize_config
+from bollards.pipelines.train.loop import evaluate, train_one_epoch
+from bollards.pipelines.train.losses import FocalLoss
+from bollards.models.classifier import BollardNet
+from bollards.utils.visuals.annotate import annotate_grid_images
 from bollards.utils.seeding import make_torch_generator, seed_everything, seed_worker
-
-
-def _build_country_mappings(
-    id_to_country: Optional[list[str]],
-    train_df: pd.DataFrame,
-    val_df: pd.DataFrame,
-) -> Tuple[Optional[list[str]], Optional[Dict[str, int]]]:
-    if id_to_country:
-        country_to_id = {name: idx for idx, name in enumerate(id_to_country) if name}
-        return id_to_country, country_to_id
-
-    combined = pd.concat([train_df, val_df], ignore_index=True)
-    if "country" not in combined.columns or LABEL_COL not in combined.columns:
-        return None, None
-
-    pairs = combined[[LABEL_COL, "country"]].dropna().drop_duplicates()
-    if pairs.empty:
-        return None, None
-
-    dup_country = pairs.groupby("country")[LABEL_COL].nunique()
-    if (dup_country > 1).any():
-        bad = dup_country[dup_country > 1].index.tolist()
-        raise ValueError(f"Multiple ids for country names in training data: {bad}")
-
-    dup_id = pairs.groupby(LABEL_COL)["country"].nunique()
-    if (dup_id > 1).any():
-        bad = dup_id[dup_id > 1].index.tolist()
-        raise ValueError(f"Multiple country names for ids in training data: {bad}")
-
-    country_to_id = {str(row["country"]): int(row[LABEL_COL]) for _, row in pairs.iterrows()}
-    max_id = max(country_to_id.values())
-    id_to_country = [""] * (max_id + 1)
-    for name, idx in country_to_id.items():
-        id_to_country[idx] = name
-
-    return id_to_country, country_to_id
-
-
-def _compute_sqrt_inv_class_weights(labels: pd.Series, num_classes: int) -> list[float]:
-    counts = labels.value_counts().reindex(range(num_classes), fill_value=0).sort_index()
-    weights = []
-    for c in counts.tolist():
-        if c > 0:
-            weights.append(1.0 / math.sqrt(float(c)))
-        else:
-            weights.append(0.0)
-    nonzero = [w for w in weights if w > 0]
-    if nonzero:
-        mean = sum(nonzero) / len(nonzero)
-        weights = [w / mean if w > 0 else 0.0 for w in weights]
-    return weights
-
-
-def _prepare_golden_df(
-    golden_df: pd.DataFrame,
-    country_to_id: Dict[str, int],
-    *,
-    avg_bbox_w: float,
-    avg_bbox_h: float,
-) -> pd.DataFrame:
-    if avg_bbox_w is None or avg_bbox_h is None:
-        raise ValueError("Golden dataset requires explicit avg_bbox_w/avg_bbox_h values.")
-
-    required = [PATH_COL, "country"]
-    missing = [c for c in required if c not in golden_df.columns]
-    if missing:
-        raise ValueError(f"Golden CSV missing required columns: {missing}")
-
-    df = golden_df.copy()
-    df["country_code"] = df["country"].apply(golden_country_to_code)
-    if df["country_code"].isna().any():
-        unknown = sorted(df.loc[df["country_code"].isna(), "country"].dropna().unique().tolist())
-        print(f"[warn] golden CSV has unmapped countries; dropping: {unknown}")
-        df = df.loc[df["country_code"].notna()].copy()
-
-    df[LABEL_COL] = df["country_code"].map(country_to_id)
-    if df[LABEL_COL].isna().any():
-        unknown_codes = sorted(df.loc[df[LABEL_COL].isna(), "country_code"].dropna().unique().tolist())
-        print(f"[warn] golden CSV has countries not in label map; dropping codes: {unknown_codes}")
-        df = df.loc[df[LABEL_COL].notna()].copy()
-
-    if df.empty:
-        raise ValueError("Golden CSV has no rows after mapping countries to labels.")
-
-    df[LABEL_COL] = df[LABEL_COL].astype(int)
-
-    bbox_defaults = {"x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0}
-    meta_defaults = {
-        "x_center": 0.5,
-        "y_center": 0.5,
-        "w": avg_bbox_w,
-        "h": avg_bbox_h,
-        "conf": 1.0,
-    }
-    for col in BBOX_COLS:
-        df[col] = bbox_defaults[col]
-    for col in META_COLS:
-        df[col] = meta_defaults[col]
-
-    df = df.drop(columns=["country_code"])
-    return df
-
-
-def _sample_diverse_rows(df: pd.DataFrame, n: int, label_col: str, seed: int = 42) -> pd.DataFrame:
-    if n <= 0 or df.empty:
-        return df.head(0).copy()
-    if n >= len(df):
-        return df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
-    if label_col not in df.columns:
-        return df.sample(n=n, random_state=seed).reset_index(drop=True)
-
-    labels = df[label_col].dropna().unique().tolist()
-    if not labels:
-        return df.sample(n=n, random_state=seed).reset_index(drop=True)
-
-    if n <= len(labels):
-        chosen = pd.Series(labels).sample(n=n, random_state=seed).tolist()
-        sampled = (
-            df[df[label_col].isin(chosen)]
-            .groupby(label_col, group_keys=False)
-            .sample(n=1, random_state=seed)
-        )
-        return sampled.sample(frac=1.0, random_state=seed).reset_index(drop=True)
-
-    base = df.groupby(label_col, group_keys=False).sample(n=1, random_state=seed)
-    remaining = n - len(base)
-    if remaining > 0:
-        rest = df.drop(index=base.index)
-        if not rest.empty:
-            extra = rest.sample(n=min(remaining, len(rest)), random_state=seed)
-            base = pd.concat([base, extra], ignore_index=True)
-
-    return base.sample(frac=1.0, random_state=seed).reset_index(drop=True)
-
-
-def _sanitize_config(cfg: TrainConfig) -> dict:
-    data = asdict(cfg)
-    hub_cfg = data.get("hub")
-    if isinstance(hub_cfg, dict) and hub_cfg.get("token"):
-        hub_cfg["token"] = "REDACTED"
-    return data
-
-
-def _format_template(template: Optional[str], **kwargs: object) -> Optional[str]:
-    if not template:
-        return template
-    if "{" not in template:
-        return template
-    try:
-        return template.format(**kwargs)
-    except KeyError as exc:
-        raise ValueError(f"Unknown placeholder in template: {exc}") from exc
-    except ValueError as exc:
-        raise ValueError(f"Invalid template format: {exc}") from exc
-
-
-def _maybe_push_best_to_hf(
-    cfg: TrainConfig,
-    *,
-    run_dir: str,
-    run_name: str,
-    best_metric_name: str,
-    best_metric_value: float,
-) -> None:
-    if not cfg.hub.enabled:
-        return
-
-    repo_id = (cfg.hub.repo_id or "").strip()
-    if not repo_id:
-        raise ValueError("hub.enabled requires hub.repo_id")
-
-    include = list(cfg.hub.upload_include or [])
-    for required in ("best.pt", "config.json"):
-        if required not in include:
-            include.append(required)
-
-    run_dir_path = Path(run_dir)
-    best_path = run_dir_path / "best.pt"
-    if not best_path.exists():
-        print("[warn] best.pt not found; skipping Hugging Face upload.")
-        return
-
-    token = cfg.hub.token
-    if not token and cfg.hub.token_env:
-        token = os.getenv(cfg.hub.token_env)
-        if not token:
-            print(
-                f"[warn] Hugging Face token env '{cfg.hub.token_env}' not set; "
-                "falling back to cached credentials."
-            )
-
-    template_args = {
-        "run_name": run_name,
-        "best_metric": best_metric_name,
-        "best_metric_value": best_metric_value,
-    }
-    path_in_repo = _format_template(cfg.hub.path_in_repo, **template_args)
-    commit_message = _format_template(cfg.hub.commit_message, **template_args)
-
-    uploaded = hf_upload_run_artifacts(
-        repo_id=repo_id,
-        run_dir=run_dir_path,
-        allow_patterns=include,
-        path_in_repo=path_in_repo,
-        private=cfg.hub.private,
-        commit_message=commit_message,
-        token=token,
-    )
-    if uploaded:
-        print(f"[info] uploaded {len(uploaded)} artifact(s) to huggingface.co/{repo_id}")
-    else:
-        print("[warn] no artifacts matched for Hugging Face upload.")
 
 
 def run_training(cfg: TrainConfig) -> None:
@@ -659,8 +449,9 @@ def run_training(cfg: TrainConfig) -> None:
             print(f"[warn] Hugging Face upload failed: {exc}")
 
     if cfg.analyze.enabled:
-        from bollards.config import AnalyzeRunConfig, load_config, resolve_config_path
-        from bollards.pipelines.analyze_run import run_analyze_run
+        from bollards.pipelines.analyze.config import AnalyzeRunConfig
+        from bollards.utils.config import load_config, resolve_config_path
+        from bollards.pipelines.analyze.run import run_analyze_run
 
         analyze_path = resolve_config_path(cfg.analyze.config_path, "analyze_run.json")
         analyze_cfg = load_config(analyze_path, AnalyzeRunConfig)

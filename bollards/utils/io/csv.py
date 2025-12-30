@@ -2,7 +2,7 @@ import csv
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-from bollards.io.fs import ensure_dir
+from bollards.utils.io.fs import ensure_dir
 
 
 def load_processed_ids(path: Path) -> set[str]:

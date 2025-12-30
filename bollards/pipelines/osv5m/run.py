@@ -9,26 +9,35 @@ from typing import Optional
 
 from tqdm import tqdm
 
-from bollards.config import MinerConfig
+from bollards.pipelines.osv5m.config import MinerConfig
 from bollards.constants import OSV5M_FILTERED_FIELDS_PREFIX, OSV5M_FILTERED_FIELDS_SUFFIX
-from bollards.detect.yolo import extract_detection_payload, load_yolo, run_inference_batch, save_annotated
-from bollards.io.csv import append_csv_row, append_processed_ids, ensure_csv_header, load_processed_ids
-from bollards.io.fs import ensure_dir
-from bollards.io.hf import hf_download_model_file
-from bollards.osv5m import (
+from bollards.models.detector_yolo import (
+    extract_detection_payload,
+    load_yolo,
+    run_inference_batch,
+    save_annotated,
+)
+from bollards.utils.io.csv import append_csv_row, append_processed_ids, ensure_csv_header, load_processed_ids
+from bollards.utils.io.fs import ensure_dir
+from bollards.utils.io.hf import hf_download_model_file
+from bollards.pipelines.osv5m.common import (
     HF_MODEL_FILENAME,
     HF_MODEL_REPO,
     META_FIELDS,
     ShardCache,
+    shard_ids_for_split,
+)
+from bollards.pipelines.osv5m.data import (
     close_shard,
     load_cursor,
     load_metadata_map,
     load_next_batch,
+    save_cursor,
+)
+from bollards.pipelines.osv5m.s3 import (
     restore_state_from_s3,
     s3_key,
     s3_upload_file,
-    save_cursor,
-    shard_ids_for_split,
     sync_state_to_s3,
 )
 

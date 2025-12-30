@@ -3,21 +3,17 @@ from __future__ import annotations
 import argparse
 from typing import Callable, Optional, Sequence
 
-from bollards.config import (
-    AnalyzeRunConfig,
-    LiveScreenConfig,
-    MinerConfig,
-    PrepareLocalDatasetConfig,
-    TrainConfig,
-    apply_overrides,
-    load_config,
-    resolve_config_path,
-)
-from bollards.pipelines.analyze_run import run_analyze_run
-from bollards.pipelines.live_screen import run_live_screen
-from bollards.pipelines.local_dataset import run_prepare_local_dataset
-from bollards.pipelines.osv5m_mine import run_miner
-from bollards.train.runner import run_training
+from bollards.pipelines.analyze.config import AnalyzeRunConfig
+from bollards.pipelines.live_screen.config import LiveScreenConfig
+from bollards.pipelines.local_dataset.config import PrepareLocalDatasetConfig
+from bollards.pipelines.osv5m.config import MinerConfig
+from bollards.pipelines.train.config import TrainConfig
+from bollards.utils.config import apply_overrides, load_config, resolve_config_path
+from bollards.pipelines.analyze.run import run_analyze_run
+from bollards.pipelines.live_screen.run import run_live_screen
+from bollards.pipelines.local_dataset.run import run_prepare_local_dataset
+from bollards.pipelines.osv5m.run import run_miner
+from bollards.pipelines.train.run import run_training
 from bollards.utils.env import load_env
 
 

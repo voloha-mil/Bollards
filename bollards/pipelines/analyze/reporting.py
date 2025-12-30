@@ -40,9 +40,11 @@ def render_table_grid(tables: list[tuple[str, pd.DataFrame]]) -> str:
 
 def relative_paths(paths: list[str], base_dir: Path) -> list[str]:
     rel = []
+    base_dir = Path(base_dir)
     for p in paths:
-        try:
-            rel.append(str(Path(p).relative_to(base_dir)))
-        except Exception:
-            rel.append(p)
+        path = Path(p)
+        if path.is_relative_to(base_dir):
+            rel.append(str(path.relative_to(base_dir)))
+        else:
+            rel.append(str(p))
     return rel

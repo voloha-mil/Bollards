@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from bollards.io.fs import ensure_dir
+from bollards.utils.io.fs import ensure_dir
 
 
 class TestEnsureDir(unittest.TestCase):

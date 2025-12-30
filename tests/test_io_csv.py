@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from bollards.io.csv import (
+from bollards.utils.io.csv import (
     append_csv_row,
     append_processed_ids,
     ensure_csv_header,

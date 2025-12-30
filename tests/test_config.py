@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from bollards.config import apply_overrides, load_config
+from bollards.utils.config import apply_overrides, load_config
 
 
 @dataclass

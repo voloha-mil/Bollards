@@ -7,7 +7,7 @@ from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
 from bollards.constants import IMAGENET_MEAN, IMAGENET_STD
-from bollards.config.train import AugmentConfig
+from bollards.pipelines.train.config import AugmentConfig
 
 
 def build_transforms(

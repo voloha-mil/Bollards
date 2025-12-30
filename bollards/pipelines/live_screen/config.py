@@ -34,7 +34,7 @@ class LiveScreenDetectorConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LiveScreenDetectorConfig":
         try:
-            from bollards.osv5m import HF_MODEL_FILENAME, HF_MODEL_REPO
+            from bollards.pipelines.osv5m.common import HF_MODEL_FILENAME, HF_MODEL_REPO
         except Exception:
             HF_MODEL_REPO = cls.hf_repo
             HF_MODEL_FILENAME = cls.hf_filename

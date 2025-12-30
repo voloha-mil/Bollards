@@ -7,33 +7,9 @@ from typing import Optional, Tuple
 import torch
 
 from bollards.constants import META_COLS
-from bollards.detect.yolo import load_yolo
-from bollards.io.hf import hf_download_model_file
-from bollards.models.bollard_net import BollardNet, ModelConfig
-
-
-def setup_logger(name: str, log_path: Path) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-
-    file_handler = logging.FileHandler(log_path)
-    file_handler.setFormatter(formatter)
-
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-
-    logger.handlers.clear()
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
-    return logger
-
-
-def resolve_device(device_str: str) -> torch.device:
-    if device_str and device_str != "auto":
-        return torch.device(device_str)
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from bollards.models.classifier import BollardNet, ModelConfig
+from bollards.models.detector_yolo import load_yolo
+from bollards.utils.io.hf import hf_download_model_file
 
 
 def load_detector(

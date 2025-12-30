@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from bollards.models.bollard_net import ModelConfig
+    from bollards.models.classifier import ModelConfig
 
 
 @dataclass
@@ -248,7 +248,7 @@ class TrainConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrainConfig":
-        from bollards.models.bollard_net import ModelConfig
+        from bollards.models.classifier import ModelConfig
 
         return cls(
             data=DataConfig.from_dict(data["data"]),
