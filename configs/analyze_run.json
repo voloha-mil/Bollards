@@ -3,9 +3,10 @@
     "main_csv": "local_data/meta/merged_boxes.csv",
     "main_img_root": "local_data",
     "main_val_csv": "local_data/meta/val.csv",
+    "training_run_dir": "runs/bollard_country/30_12_double_layer",
     "golden_csv": "golden_dataset/labels.csv",
     "golden_img_root": "golden_dataset",
-    "country_map_json": "runs/bollard_country/30_12_double_layer/country_map.json",
+    "country_map_json": null,
     "region_map_json": null,
     "golden_default_category": "bollard"
   },
@@ -17,12 +18,11 @@
     "cls_allow": null,
     "min_box_w_px": 0.0,
     "min_box_h_px": 0.0,
-    "max_boxes_per_image": 50,
+    "max_boxes_per_image": 1,
     "class_names": null
   },
   "classifier": {
     "include": "common_classifier.json",
-    "checkpoint_path": "runs/bollard_country/30_12_double_layer/best.pt",
     "batch_size": 64,
     "num_workers": 0
   },

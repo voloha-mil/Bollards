@@ -221,6 +221,19 @@ class HubConfig:
 
 
 @dataclass
+class AnalyzeAfterTrainConfig:
+    enabled: bool = False
+    config_path: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AnalyzeAfterTrainConfig":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            config_path=data.get("config_path"),
+        )
+
+
+@dataclass
 class TrainConfig:
     data: DataConfig
     model: "ModelConfig"
@@ -229,6 +242,7 @@ class TrainConfig:
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     hub: HubConfig = field(default_factory=HubConfig)
+    analyze: AnalyzeAfterTrainConfig = field(default_factory=AnalyzeAfterTrainConfig)
     device: str = "auto"
     seed: int = 42
 
@@ -244,6 +258,7 @@ class TrainConfig:
             schedule=ScheduleConfig.from_dict(data.get("schedule", {})),
             logging=LoggingConfig.from_dict(data.get("logging", {})),
             hub=HubConfig.from_dict(data.get("hub", {})),
+            analyze=AnalyzeAfterTrainConfig.from_dict(data.get("analyze", {})),
             device=str(data.get("device", "auto")),
             seed=int(data.get("seed", 42)),
         )

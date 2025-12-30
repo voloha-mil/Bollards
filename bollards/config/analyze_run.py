@@ -9,6 +9,7 @@ class AnalyzeRunDataConfig:
     main_csv: str
     main_img_root: str
     main_val_csv: Optional[str] = None
+    training_run_dir: Optional[str] = None
     golden_csv: Optional[str] = None
     golden_img_root: Optional[str] = None
     country_map_json: Optional[str] = None
@@ -21,6 +22,7 @@ class AnalyzeRunDataConfig:
             main_csv=str(data.get("main_csv", "")),
             main_img_root=str(data.get("main_img_root", "")),
             main_val_csv=data.get("main_val_csv"),
+            training_run_dir=data.get("training_run_dir"),
             golden_csv=data.get("golden_csv"),
             golden_img_root=data.get("golden_img_root"),
             country_map_json=data.get("country_map_json"),

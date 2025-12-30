@@ -73,7 +73,7 @@
     "best_metric": "val_top1"
   },
   "hub": {
-    "enabled": true,
+    "enabled": false,
     "repo_id": "olehborovyk/bollards",
     "private": false,
     "token_env": "HF_TOKEN",
@@ -88,6 +88,10 @@
     ],
     "commit_message": "Add best checkpoint",
     "fail_on_error": false
+  },
+  "analyze": {
+    "enabled": false,
+    "config_path": "configs/analyze_run.json"
   },
   "device": "cuda",
   "seed": 42

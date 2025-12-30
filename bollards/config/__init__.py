@@ -18,6 +18,7 @@ from bollards.config.live_screen import (
 from bollards.config.miner import MinerConfig
 from bollards.config.prepare_local_dataset import PrepareLocalDatasetConfig
 from bollards.config.train import (
+    AnalyzeAfterTrainConfig,
     AugmentConfig,
     DataConfig,
     HubConfig,
@@ -33,6 +34,7 @@ __all__ = [
     "AnalyzeRunDataConfig",
     "AnalyzeRunDetectorConfig",
     "AnalyzeRunOutputConfig",
+    "AnalyzeAfterTrainConfig",
     "AugmentConfig",
     "apply_overrides",
     "DataConfig",

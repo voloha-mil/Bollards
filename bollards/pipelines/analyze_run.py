@@ -48,6 +48,7 @@ from bollards.pipelines.analyze.metrics import (
 )
 from bollards.pipelines.analyze.plots import plot_count_hist as _plot_count_hist
 from bollards.pipelines.analyze.plots import plot_hist as _plot_hist
+from bollards.pipelines.analyze.plots import plot_scalar_series as _plot_scalar_series
 from bollards.pipelines.common import load_classifier, resolve_device, setup_logger as _setup_logger
 from bollards.utils.seeding import make_python_rng, seed_everything
 
@@ -139,6 +140,33 @@ def _render_expand_list(title: str, items: list[str]) -> str:
     )
 
 
+def _load_tb_scalars(tb_dir: Path, logger) -> dict[str, list[tuple[int, float]]]:
+    try:
+        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    except ImportError:
+        logger.info("TensorBoard not available; skipping scalar plots.")
+        return {}
+
+    if not tb_dir.exists():
+        return {}
+
+    try:
+        accumulator = EventAccumulator(str(tb_dir))
+        accumulator.Reload()
+    except Exception as exc:
+        logger.info("Failed to read TensorBoard logs from %s: %s", tb_dir, exc)
+        return {}
+
+    tags = accumulator.Tags().get("scalars", [])
+    scalars: dict[str, list[tuple[int, float]]] = {}
+    for tag in tags:
+        events = accumulator.Scalars(tag)
+        if not events:
+            continue
+        scalars[tag] = [(int(e.step), float(e.value)) for e in events]
+    return scalars
+
+
 def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
     seed_everything(cfg.seed)
     rng = make_python_rng(cfg.seed, "analyze_shuffle")
@@ -168,6 +196,14 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
     main_df = pd.read_csv(cfg.data.main_csv)
     golden_df = pd.read_csv(cfg.data.golden_csv) if cfg.data.golden_csv else None
     main_val_df = pd.read_csv(cfg.data.main_val_csv) if cfg.data.main_val_csv else pd.DataFrame()
+
+    training_run_dir = Path(cfg.data.training_run_dir) if cfg.data.training_run_dir else None
+    if training_run_dir:
+        cfg.classifier.checkpoint_path = str(training_run_dir / "best.pt")
+        cfg.data.country_map_json = str(training_run_dir / "country_map.json")
+        logger.info("Using training run dir: %s", training_run_dir)
+        logger.info("Classifier checkpoint: %s", cfg.classifier.checkpoint_path)
+        logger.info("Country map: %s", cfg.data.country_map_json)
 
     id_to_country = load_id_to_country(cfg.data.country_map_json)
     id_to_country, country_to_id = _build_country_mappings(id_to_country, main_df)
@@ -692,6 +728,38 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                 class_sections.append(_build_report_section("Classifier (main)", section))
 
         report_sections.extend(class_sections)
+
+    tb_section = ""
+    tb_dir = None
+    if training_run_dir:
+        tb_dir = training_run_dir / "tb"
+    elif cfg.classifier.checkpoint_path:
+        tb_dir = Path(cfg.classifier.checkpoint_path).parent / "tb"
+
+    if tb_dir:
+        scalars = _load_tb_scalars(tb_dir, logger)
+        if scalars:
+            tb_section += f"<p class='meta'>Source: {_escape_html(str(tb_dir))}</p>"
+            used_names: set[str] = set()
+            for tag, points in sorted(scalars.items(), key=lambda item: item[0]):
+                if not points:
+                    continue
+                steps, values = zip(*points)
+                safe_tag = tag.replace("/", "_").replace(" ", "_")
+                if safe_tag in used_names:
+                    suffix = 2
+                    while f"{safe_tag}_{suffix}" in used_names:
+                        suffix += 1
+                    safe_tag = f"{safe_tag}_{suffix}"
+                used_names.add(safe_tag)
+                out_path = run_dir / "artifacts" / "tensorboard" / f"{safe_tag}.png"
+                _plot_scalar_series(steps, values, out_path, tag)
+                if out_path.exists():
+                    tb_section += f"<h3>{_escape_html(tag)}</h3>"
+                    tb_section += f"<img src='artifacts/tensorboard/{safe_tag}.png' width='520'>"
+
+    if tb_section:
+        report_sections.append(_build_report_section("TensorBoard scalars", tb_section))
 
     css = """
     <style>

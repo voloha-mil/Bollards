@@ -657,3 +657,15 @@ def run_training(cfg: TrainConfig) -> None:
             if cfg.hub.fail_on_error:
                 raise
             print(f"[warn] Hugging Face upload failed: {exc}")
+
+    if cfg.analyze.enabled:
+        from bollards.config import AnalyzeRunConfig, load_config, resolve_config_path
+        from bollards.pipelines.analyze_run import run_analyze_run
+
+        analyze_path = resolve_config_path(cfg.analyze.config_path, "analyze_run.json")
+        analyze_cfg = load_config(analyze_path, AnalyzeRunConfig)
+        analyze_cfg.data.training_run_dir = run_dir
+        if not analyze_cfg.data.main_val_csv:
+            analyze_cfg.data.main_val_csv = cfg.data.val_csv
+        print(f"[info] running analyze_run from {analyze_path}")
+        run_analyze_run(analyze_cfg)
