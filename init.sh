@@ -49,9 +49,6 @@ else
   echo "[warn] $REQ_FILE not found, skipping."
 fi
 
-echo "[info] Ensuring runtime deps..."
-pip install -U boto3
-
 echo "[info] Quick import checks..."
 python - <<'PY'
 import sys
@@ -69,6 +66,9 @@ if bad:
     sys.exit(1)
 print("[ok] All imports succeeded.")
 PY
+
+echo "[info] Running tests..."
+python -m unittest discover -s tests -p "test_*.py"
 
 echo
 echo "[done] Prepared repo on branch: $BRANCH"
