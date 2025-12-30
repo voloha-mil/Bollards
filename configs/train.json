@@ -46,7 +46,7 @@
     "meta_hidden": 64,
     "meta_dropout": 0.0,
     "head_hidden": 256,
-    "head_layers": 2,
+    "head_layers": 1,
     "head_dropout": 0.2
   },
   "optim": {
@@ -60,18 +60,35 @@
     "focal_alpha": null
   },
   "schedule": {
-    "epochs": 60,
+    "epochs": 10,
     "freeze_epochs": 1
   },
   "logging": {
     "out_dir": "runs/bollard_country",
     "tb_dir": null,
-    "run_name": "30_12_double_layer",
+    "run_name": "30_12_hfpush",
     "log_images": 4,
     "log_image_every": 1,
     "tb_font_size": 18,
     "best_metric": "val_top1"
   },
+  "hub": {
+    "enabled": true,
+    "repo_id": "olehborovyk/bollards",
+    "private": false,
+    "token_env": "HF_TOKEN",
+    "path_in_repo": null,
+    "upload_include": [
+      "best.pt",
+      "config.json",
+      "country_map.json",
+      "country_list.json",
+      "country_counts.csv",
+      "country_mapping.json"
+    ],
+    "commit_message": "Add best checkpoint",
+    "fail_on_error": false
+  },
   "device": "cuda",
-  "seed": 43
+  "seed": 42
 }

@@ -109,6 +109,8 @@ The training loop builds a classifier on bollard crops plus bbox metadata:
   annealing; optional backbone freeze for the first `schedule.freeze_epochs`.
 - **Metrics & checkpoints**: top-1, top-5, and mAP; best checkpoint is selected by
   `logging.best_metric`. Optional golden dataset eval adds extra metrics and grids.
+- **Hugging Face upload**: enable `hub.enabled` to push `best.pt` plus configs to a
+  model repo after training completes.
 
 ## Configuration
 
@@ -124,6 +126,11 @@ python scripts/train.py \
 ```
 
 If you omit `--config`, each command loads its default file from `configs/`.
+
+To auto-push the best checkpoint, set `hub.enabled=true` and `hub.repo_id` in
+`configs/train.json`. You can scope uploads with `hub.path_in_repo` (supports
+`{run_name}`), control artifacts with `hub.upload_include`, and provide a token via
+`hub.token_env` or your cached HF login.
 
 ## Data and Storage
 

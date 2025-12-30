@@ -167,6 +167,7 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
 
     main_df = pd.read_csv(cfg.data.main_csv)
     golden_df = pd.read_csv(cfg.data.golden_csv) if cfg.data.golden_csv else None
+    main_val_df = pd.read_csv(cfg.data.main_val_csv) if cfg.data.main_val_csv else pd.DataFrame()
 
     id_to_country = load_id_to_country(cfg.data.country_map_json)
     id_to_country, country_to_id = _build_country_mappings(id_to_country, main_df)
@@ -178,6 +179,15 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         region_note = "Region mapping: derived from golden dataset continent"
     else:
         region_note = "Region mapping: unavailable (region metrics skipped)"
+
+    if not main_val_df.empty:
+        main_val_df = main_val_df.copy()
+        if "country" not in main_val_df.columns and id_to_country is not None:
+            main_val_df["country"] = main_val_df[LABEL_COL].apply(
+                lambda idx: id_to_country[int(idx)] if int(idx) < len(id_to_country) else str(idx)
+            )
+        if region_map and "country" in main_val_df.columns:
+            main_val_df = _maybe_add_region_by_country(main_val_df, "country", region_map)
 
     report_sections: list[str] = []
 
@@ -548,10 +558,16 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
 
             class_sections.append(_build_report_section("Classifier (golden)", section))
 
-        # Main classifier eval
-        if not main_df.empty:
-            eval_df = main_df.copy()
+        # Main classifier eval (val only)
+        if main_val_df.empty:
+            logger.info("Skipping classifier eval on main dataset (no main_val_csv provided).")
+        else:
+            eval_df = main_val_df.copy()
             if cfg.detector.enabled and not det_df.empty:
+                det_eval_df = det_df.copy()
+                val_paths = eval_df[PATH_COL].dropna().astype(str).unique().tolist()
+                if val_paths:
+                    det_eval_df = det_eval_df[det_eval_df["image_path"].isin(val_paths)]
                 if "country" in eval_df.columns:
                     image_country = eval_df.groupby(PATH_COL)["country"].first().to_dict()
                     image_country_id = eval_df.groupby(PATH_COL)[LABEL_COL].first().to_dict() if LABEL_COL in eval_df.columns else {}
@@ -559,12 +575,11 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                     image_country = {}
                     image_country_id = {}
 
-                det_df = det_df.copy()
-                det_df["country"] = det_df["image_path"].map(image_country)
-                det_df[LABEL_COL] = det_df["image_path"].map(image_country_id)
-                det_df = det_df.dropna(subset=[LABEL_COL])
-                det_df[LABEL_COL] = det_df[LABEL_COL].astype(int)
-                eval_df = det_df
+                det_eval_df["country"] = det_eval_df["image_path"].map(image_country)
+                det_eval_df[LABEL_COL] = det_eval_df["image_path"].map(image_country_id)
+                det_eval_df = det_eval_df.dropna(subset=[LABEL_COL])
+                det_eval_df[LABEL_COL] = det_eval_df[LABEL_COL].astype(int)
+                eval_df = det_eval_df
 
             if all(c in eval_df.columns for c in [PATH_COL, LABEL_COL, *BBOX_COLS, *META_COLS]):
                 main_preds = _run_classifier(
@@ -633,6 +648,8 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                 )
 
                 section = ""
+                if cfg.data.main_val_csv:
+                    section += f"<p>Eval set: {_escape_html(cfg.data.main_val_csv)}</p>"
                 section += "<p>Top-1 country: {:.3f} | Top-5 country: {:.3f}</p>".format(metrics.get("top1_country", 0.0), metrics.get("top5_country", 0.0))
                 if "top1_region" in metrics:
                     section += "<p>Top-1 region: {:.3f} | Top-5 region: {:.3f}</p>".format(metrics.get("top1_region", 0.0), metrics.get("top5_region", 0.0))

@@ -20,6 +20,7 @@ from bollards.config.prepare_local_dataset import PrepareLocalDatasetConfig
 from bollards.config.train import (
     AugmentConfig,
     DataConfig,
+    HubConfig,
     LoggingConfig,
     OptimConfig,
     ScheduleConfig,
@@ -35,6 +36,7 @@ __all__ = [
     "AugmentConfig",
     "apply_overrides",
     "DataConfig",
+    "HubConfig",
     "LiveScreenCaptureConfig",
     "LiveScreenClassifierConfig",
     "LiveScreenConfig",

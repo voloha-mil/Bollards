@@ -6,6 +6,7 @@ import os
 import shutil
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import pandas as pd
@@ -22,6 +23,7 @@ from bollards.data.datasets import BollardCropsDataset
 from bollards.data.labels import load_id_to_country
 from bollards.data.samplers import make_sampler
 from bollards.data.transforms import build_transforms
+from bollards.io.hf import hf_upload_run_artifacts
 from bollards.models.bollard_net import BollardNet
 from bollards.train.losses import FocalLoss
 from bollards.train.loop import evaluate, train_one_epoch
@@ -160,6 +162,85 @@ def _sample_diverse_rows(df: pd.DataFrame, n: int, label_col: str, seed: int = 4
             base = pd.concat([base, extra], ignore_index=True)
 
     return base.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+
+def _sanitize_config(cfg: TrainConfig) -> dict:
+    data = asdict(cfg)
+    hub_cfg = data.get("hub")
+    if isinstance(hub_cfg, dict) and hub_cfg.get("token"):
+        hub_cfg["token"] = "REDACTED"
+    return data
+
+
+def _format_template(template: Optional[str], **kwargs: object) -> Optional[str]:
+    if not template:
+        return template
+    if "{" not in template:
+        return template
+    try:
+        return template.format(**kwargs)
+    except KeyError as exc:
+        raise ValueError(f"Unknown placeholder in template: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid template format: {exc}") from exc
+
+
+def _maybe_push_best_to_hf(
+    cfg: TrainConfig,
+    *,
+    run_dir: str,
+    run_name: str,
+    best_metric_name: str,
+    best_metric_value: float,
+) -> None:
+    if not cfg.hub.enabled:
+        return
+
+    repo_id = (cfg.hub.repo_id or "").strip()
+    if not repo_id:
+        raise ValueError("hub.enabled requires hub.repo_id")
+
+    include = list(cfg.hub.upload_include or [])
+    for required in ("best.pt", "config.json"):
+        if required not in include:
+            include.append(required)
+
+    run_dir_path = Path(run_dir)
+    best_path = run_dir_path / "best.pt"
+    if not best_path.exists():
+        print("[warn] best.pt not found; skipping Hugging Face upload.")
+        return
+
+    token = cfg.hub.token
+    if not token and cfg.hub.token_env:
+        token = os.getenv(cfg.hub.token_env)
+        if not token:
+            print(
+                f"[warn] Hugging Face token env '{cfg.hub.token_env}' not set; "
+                "falling back to cached credentials."
+            )
+
+    template_args = {
+        "run_name": run_name,
+        "best_metric": best_metric_name,
+        "best_metric_value": best_metric_value,
+    }
+    path_in_repo = _format_template(cfg.hub.path_in_repo, **template_args)
+    commit_message = _format_template(cfg.hub.commit_message, **template_args)
+
+    uploaded = hf_upload_run_artifacts(
+        repo_id=repo_id,
+        run_dir=run_dir_path,
+        allow_patterns=include,
+        path_in_repo=path_in_repo,
+        private=cfg.hub.private,
+        commit_message=commit_message,
+        token=token,
+    )
+    if uploaded:
+        print(f"[info] uploaded {len(uploaded)} artifact(s) to huggingface.co/{repo_id}")
+    else:
+        print("[warn] no artifacts matched for Hugging Face upload.")
 
 
 def run_training(cfg: TrainConfig) -> None:
@@ -365,10 +446,11 @@ def run_training(cfg: TrainConfig) -> None:
     scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
 
     writer = SummaryWriter(log_dir=tb_dir)
-    writer.add_text("run/config", json.dumps(asdict(cfg), indent=2), global_step=0)
+    config_payload = _sanitize_config(cfg)
+    writer.add_text("run/config", json.dumps(config_payload, indent=2), global_step=0)
     writer.add_text("model/config", json.dumps(asdict(cfg.model), indent=2), global_step=0)
     with open(os.path.join(run_dir, "config.json"), "w", encoding="utf-8") as f:
-        json.dump(asdict(cfg), f, indent=2)
+        json.dump(config_payload, f, indent=2)
 
     if cfg.data.country_map_json and os.path.exists(cfg.data.country_map_json):
         shutil.copyfile(cfg.data.country_map_json, os.path.join(run_dir, "country_map.json"))
@@ -561,3 +643,17 @@ def run_training(cfg: TrainConfig) -> None:
             )
 
     writer.close()
+
+    if cfg.hub.enabled:
+        try:
+            _maybe_push_best_to_hf(
+                cfg,
+                run_dir=run_dir,
+                run_name=run_name,
+                best_metric_name=best_metric_name,
+                best_metric_value=best_metric_value,
+            )
+        except Exception as exc:
+            if cfg.hub.fail_on_error:
+                raise
+            print(f"[warn] Hugging Face upload failed: {exc}")

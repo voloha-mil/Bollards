@@ -159,6 +159,67 @@ class LoggingConfig:
         )
 
 
+_DEFAULT_HUB_UPLOAD_INCLUDE = [
+    "best.pt",
+    "config.json",
+    "country_map.json",
+    "country_list.json",
+    "country_counts.csv",
+    "country_mapping.json",
+]
+
+
+def _default_hub_upload_include() -> list[str]:
+    return list(_DEFAULT_HUB_UPLOAD_INCLUDE)
+
+
+@dataclass
+class HubConfig:
+    enabled: bool = False
+    repo_id: Optional[str] = None
+    private: bool = False
+    token: Optional[str] = None
+    token_env: Optional[str] = "HF_TOKEN"
+    path_in_repo: Optional[str] = None
+    upload_include: list[str] = field(default_factory=_default_hub_upload_include)
+    commit_message: str = "Add best checkpoint"
+    fail_on_error: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "HubConfig":
+        def _clean(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
+        include = data.get("upload_include")
+        if include is None:
+            include = data.get("include")
+        if include is None:
+            include_list = _default_hub_upload_include()
+        elif isinstance(include, list):
+            include_list = [str(item).strip() for item in include if str(item).strip()]
+        else:
+            include_list = [str(include).strip()] if str(include).strip() else []
+
+        commit_message = data.get("commit_message")
+        if commit_message is None:
+            commit_message = "Add best checkpoint"
+
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            repo_id=_clean(data.get("repo_id")),
+            private=bool(data.get("private", False)),
+            token=_clean(data.get("token")),
+            token_env=_clean(data.get("token_env", "HF_TOKEN")),
+            path_in_repo=_clean(data.get("path_in_repo")),
+            upload_include=include_list,
+            commit_message=str(commit_message),
+            fail_on_error=bool(data.get("fail_on_error", False)),
+        )
+
+
 @dataclass
 class TrainConfig:
     data: DataConfig
@@ -167,6 +228,7 @@ class TrainConfig:
     optim: OptimConfig = field(default_factory=OptimConfig)
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    hub: HubConfig = field(default_factory=HubConfig)
     device: str = "auto"
     seed: int = 42
 
@@ -181,6 +243,7 @@ class TrainConfig:
             optim=OptimConfig.from_dict(data.get("optim", {})),
             schedule=ScheduleConfig.from_dict(data.get("schedule", {})),
             logging=LoggingConfig.from_dict(data.get("logging", {})),
+            hub=HubConfig.from_dict(data.get("hub", {})),
             device=str(data.get("device", "auto")),
             seed=int(data.get("seed", 42)),
         )
