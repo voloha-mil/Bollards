@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from html import escape as _escape_html
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,7 @@ from bollards.pipelines.analyze.metrics import (
     top_bottom as _top_bottom,
     value_counts as _value_counts,
 )
+from bollards.pipelines.analyze.plots import plot_count_hist as _plot_count_hist
 from bollards.pipelines.analyze.plots import plot_hist as _plot_hist
 from bollards.pipelines.common import load_classifier, resolve_device, setup_logger as _setup_logger
 from bollards.utils.seeding import make_python_rng, seed_everything
@@ -64,17 +66,20 @@ def _compute_class_counts(
         return pd.DataFrame({"class_name": [], "count": []})
 
     if "cls" in df.columns:
-        cls_series = pd.to_numeric(df["cls"], errors="coerce").dropna()
+        cls_series = pd.to_numeric(df["cls"], errors="coerce")
+        if isinstance(cls_series, pd.DataFrame):
+            cls_series = cls_series.iloc[:, 0]
+        cls_series = cls_series.dropna()
         if not cls_series.empty:
             counts = cls_series.astype(int).value_counts().reset_index()
-            counts = counts.rename(columns={"index": "class_id", "cls": "count"})
+            counts.columns = ["class_id", "count"]
             counts["class_name"] = counts["class_id"].apply(lambda x: _class_name(x, class_names))
             return counts[["class_name", "count"]]
 
     if "class_name" in df.columns:
         counts = _value_counts(df, "class_name")
-        if not counts.empty:
-            return counts
+        if not counts.empty and "class_name" in counts.columns:
+            return counts[["class_name", "count"]]
 
     if default_class:
         return pd.DataFrame({"class_name": [default_class], "count": [len(df)]})
@@ -91,6 +96,46 @@ def _load_classifier(cfg: AnalyzeRunConfig, device, logger):
         checkpoint_path=cfg.classifier.checkpoint_path,
         device=device,
         logger=logger,
+    )
+
+
+def _format_gallery_labels(df: pd.DataFrame) -> list[str]:
+    if df.empty:
+        return []
+    cols = [c for c in ["image_path", "image_id"] if c in df.columns]
+    if not cols:
+        return []
+    data = df[cols].dropna(how="all").copy()
+    if data.empty:
+        return []
+    data = data.drop_duplicates()
+    labels: list[str] = []
+    if "image_path" in data.columns and "image_id" in data.columns:
+        for _, row in data.iterrows():
+            path = str(row.get("image_path", "")).strip()
+            img_id = str(row.get("image_id", "")).strip()
+            if path and img_id:
+                labels.append(f"{path} ({img_id})")
+            elif path:
+                labels.append(path)
+            elif img_id:
+                labels.append(img_id)
+    elif "image_path" in data.columns:
+        labels = [str(p).strip() for p in data["image_path"].tolist() if str(p).strip()]
+    else:
+        labels = [str(p).strip() for p in data["image_id"].tolist() if str(p).strip()]
+    return labels
+
+
+def _render_expand_list(title: str, items: list[str]) -> str:
+    if not items:
+        return ""
+    escaped = _escape_html("\n".join(items))
+    return (
+        "<details class='expand'>"
+        f"<summary>{_escape_html(title)}</summary>"
+        f"<pre>{escaped}</pre>"
+        "</details>"
     )
 
 
@@ -161,7 +206,7 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         _save_csv(main_image_dist, run_dir / "artifacts" / "main" / "images_per_country_dist.csv")
 
         if not main_image_counts.empty:
-            _plot_hist(
+            _plot_count_hist(
                 main_image_counts["image_count"],
                 run_dir / "artifacts" / "main" / "images_per_country_hist.png",
                 "Images per country",
@@ -186,17 +231,7 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             _plot_hist(area_aspect["bbox_area"], run_dir / "artifacts" / "main" / "bbox_area_hist.png", "BBox area", "area fraction")
             _plot_hist(area_aspect["bbox_aspect"], run_dir / "artifacts" / "main" / "bbox_aspect_hist.png", "BBox aspect", "aspect ratio")
 
-        for cls_name in class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():
-            subset = main_df[main_df["class_name"] == cls_name]
-            sub_area = _calc_bbox_area_aspect(subset, "bbox")
-            if sub_area.empty:
-                continue
-            safe_name = cls_name.replace("/", "_")
-            _plot_hist(sub_area["bbox_area"], run_dir / "artifacts" / "main" / f"bbox_area_{safe_name}.png", f"BBox area ({cls_name})", "area fraction")
-            _plot_hist(sub_area["bbox_aspect"], run_dir / "artifacts" / "main" / f"bbox_aspect_{safe_name}.png", f"BBox aspect ({cls_name})", "aspect ratio")
-
         top_country, bottom_country = _top_bottom(main_df, "country") if "country" in main_df.columns else (pd.DataFrame(), pd.DataFrame())
-        top_region, bottom_region = _top_bottom(main_df, "region") if "region" in main_df.columns else (pd.DataFrame(), pd.DataFrame())
 
         main_section = ""
         main_section += f"<p>Images: {main_stats.get('n_images', 0)} | Objects: {main_stats.get('n_objects', 0)} | Objects/image: {main_stats.get('objects_per_image', 0):.2f}</p>"
@@ -209,31 +244,17 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             ("Top countries", top_country),
             ("Bottom countries", bottom_country),
         ])
-        if not top_region.empty:
-            main_section += "<h3>Top/bottom regions</h3>"
-            main_section += _render_table_grid([
-                ("Top regions", top_region),
-                ("Bottom regions", bottom_region),
-            ])
+        if not main_region_counts.empty:
+            main_section += "<h3>Regions distribution</h3>"
+            main_section += _render_table(main_region_counts)
         if (run_dir / "artifacts" / "main" / "images_per_country_hist.png").exists():
             main_section += "<h3>Images per country</h3>"
             main_section += "<img src='artifacts/main/images_per_country_hist.png' width='420'>"
-        main_section += "<h3>Class distribution</h3>" + _render_table(class_counts.head(20))
         main_section += "<h3>Geometry</h3>"
         if (run_dir / "artifacts" / "main" / "bbox_area_hist.png").exists():
             main_section += "<img src='artifacts/main/bbox_area_hist.png' width='420'>"
         if (run_dir / "artifacts" / "main" / "bbox_aspect_hist.png").exists():
             main_section += "<img src='artifacts/main/bbox_aspect_hist.png' width='420'>"
-        if not class_counts.empty:
-            main_section += "<h3>Geometry by class</h3>"
-            for cls_name in class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():
-                safe_name = cls_name.replace("/", "_")
-                area_path = run_dir / "artifacts" / "main" / f"bbox_area_{safe_name}.png"
-                aspect_path = run_dir / "artifacts" / "main" / f"bbox_aspect_{safe_name}.png"
-                if area_path.exists():
-                    main_section += f"<img src='artifacts/main/bbox_area_{safe_name}.png' width='360'>"
-                if aspect_path.exists():
-                    main_section += f"<img src='artifacts/main/bbox_aspect_{safe_name}.png' width='360'>"
         report_sections.append(_build_report_section("Main dataset", main_section))
 
     # Dataset analyzer: golden
@@ -273,18 +294,8 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
         if not golden_geom.empty:
             _plot_hist(golden_geom["crop_area"], run_dir / "artifacts" / "golden" / "bbox_area_hist.png", "BBox area", "area fraction")
             _plot_hist(golden_geom["crop_aspect"], run_dir / "artifacts" / "golden" / "bbox_aspect_hist.png", "BBox aspect", "aspect ratio")
-        if not class_counts.empty:
-            for cls_name in class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():
-                subset = golden_df[golden_df["class_name"] == cls_name]
-                sub_geom = _calc_crop_area_aspect(subset, "crop")
-                if sub_geom.empty:
-                    continue
-                safe_name = cls_name.replace("/", "_")
-                _plot_hist(sub_geom["crop_area"], run_dir / "artifacts" / "golden" / f"bbox_area_{safe_name}.png", f"BBox area ({cls_name})", "area fraction")
-                _plot_hist(sub_geom["crop_aspect"], run_dir / "artifacts" / "golden" / f"bbox_aspect_{safe_name}.png", f"BBox aspect ({cls_name})", "aspect ratio")
-
         if not golden_image_counts.empty:
-            _plot_hist(
+            _plot_count_hist(
                 golden_image_counts["image_count"],
                 run_dir / "artifacts" / "golden" / "images_per_country_hist.png",
                 "Images per country",
@@ -292,7 +303,6 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             )
 
         top_country, bottom_country = _top_bottom(golden_df, "country")
-        top_region, bottom_region = _top_bottom(golden_df, "region") if "region" in golden_df.columns else (pd.DataFrame(), pd.DataFrame())
 
         golden_section = ""
         golden_section += f"<p>Images: {golden_stats.get('n_images', 0)} | Objects: {golden_stats.get('n_objects', 0)} | Objects/image: {golden_stats.get('objects_per_image', 0):.2f}</p>"
@@ -305,31 +315,17 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             ("Top countries", top_country),
             ("Bottom countries", bottom_country),
         ])
-        if not top_region.empty:
-            golden_section += "<h3>Top/bottom regions</h3>"
-            golden_section += _render_table_grid([
-                ("Top regions", top_region),
-                ("Bottom regions", bottom_region),
-            ])
+        if not golden_region_counts.empty:
+            golden_section += "<h3>Regions distribution</h3>"
+            golden_section += _render_table(golden_region_counts)
         if (run_dir / "artifacts" / "golden" / "images_per_country_hist.png").exists():
             golden_section += "<h3>Images per country</h3>"
             golden_section += "<img src='artifacts/golden/images_per_country_hist.png' width='420'>"
-        golden_section += "<h3>Class distribution</h3>" + _render_table(class_counts.head(20))
         golden_section += "<h3>Geometry</h3>"
         if (run_dir / "artifacts" / "golden" / "bbox_area_hist.png").exists():
             golden_section += "<img src='artifacts/golden/bbox_area_hist.png' width='420'>"
         if (run_dir / "artifacts" / "golden" / "bbox_aspect_hist.png").exists():
             golden_section += "<img src='artifacts/golden/bbox_aspect_hist.png' width='420'>"
-        if not class_counts.empty:
-            golden_section += "<h3>Geometry by class</h3>"
-            for cls_name in class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():
-                safe_name = cls_name.replace("/", "_")
-                area_path = run_dir / "artifacts" / "golden" / f"bbox_area_{safe_name}.png"
-                aspect_path = run_dir / "artifacts" / "golden" / f"bbox_aspect_{safe_name}.png"
-                if area_path.exists():
-                    golden_section += f"<img src='artifacts/golden/bbox_area_{safe_name}.png' width='360'>"
-                if aspect_path.exists():
-                    golden_section += f"<img src='artifacts/golden/bbox_aspect_{safe_name}.png' width='360'>"
         report_sections.append(_build_report_section("Golden dataset", golden_section))
 
     # Detector prediction analyzer
@@ -388,6 +384,7 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             img_root = Path(cfg.data.main_img_root)
             color_map = _make_color_map(det_df["cls"].astype(int).tolist())
             gallery_by_class: dict[str, list[str]] = {}
+            gallery_labels_by_class: dict[str, list[str]] = {}
             for cls_name in det_class_counts["class_name"].head(cfg.output.max_categories_plots).tolist():
                 cls_subset = det_df[det_df["class_name"] == cls_name]
                 img_ids = cls_subset["image_path"].dropna().unique().tolist()
@@ -396,6 +393,7 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                 gallery_dir = run_dir / "artifacts" / "detector" / "gallery" / cls_name.replace("/", "_")
                 gallery_dir.mkdir(parents=True, exist_ok=True)
                 gallery_by_class[cls_name] = []
+                gallery_labels_by_class[cls_name] = []
                 for i, rel_path in enumerate(img_ids):
                     img_path = img_root / rel_path
                     if not img_path.exists():
@@ -410,6 +408,7 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                             out_path = gallery_dir / f"det_{i:03d}.jpg"
                             annotated.save(out_path)
                             gallery_by_class[cls_name].append(str(out_path))
+                            gallery_labels_by_class[cls_name].append(str(rel_path))
                     except Exception:
                         continue
 
@@ -422,6 +421,8 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                     det_section += f"<h4>{cls_name}</h4><div class='grid'>"
                     det_section += "".join([f"<img src='{p}' loading='lazy'>" for p in rel])
                     det_section += "</div>"
+                    labels = gallery_labels_by_class.get(cls_name, [])
+                    det_section += _render_expand_list("Image files", labels)
 
         report_sections.append(_build_report_section("Detector predictions (main)", det_section))
 
@@ -510,15 +511,23 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             if "top1_region" in metrics:
                 section += "<p>Top-1 region: {:.3f} | Top-5 region: {:.3f}</p>".format(metrics.get("top1_region", 0.0), metrics.get("top5_region", 0.0))
             section += "<h3>Best/worst countries</h3>"
+            if not country_groups.empty:
+                worst_countries = country_groups.sort_values("top1_accuracy", ascending=True).head(cfg.output.top_k)
+                best_countries = country_groups.sort_values("top1_accuracy", ascending=False).head(cfg.output.top_k)
+            else:
+                worst_countries = country_groups
+                best_countries = country_groups
             section += _render_table_grid([
-                ("Worst", country_groups.head(cfg.output.top_k)),
-                ("Best", country_groups.tail(cfg.output.top_k)),
+                ("Worst", worst_countries),
+                ("Best", best_countries),
             ])
             if not region_groups.empty:
                 section += "<h3>Best/worst regions</h3>"
+                worst_regions = region_groups.sort_values("top1_accuracy", ascending=True).head(cfg.output.top_k)
+                best_regions = region_groups.sort_values("top1_accuracy", ascending=False).head(cfg.output.top_k)
                 section += _render_table_grid([
-                    ("Worst", region_groups.head(cfg.output.top_k)),
-                    ("Best", region_groups.tail(cfg.output.top_k)),
+                    ("Worst", worst_regions),
+                    ("Best", best_regions),
                 ])
             section += "<h3>Top confusion pairs (country)</h3>" + _render_table(country_conf)
             if not region_conf.empty:
@@ -527,12 +536,15 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
             if galleries["correct"]:
                 rel = _relative_paths(galleries["correct"], run_dir)
                 section += "<h3>Correct samples</h3><div class='grid'>" + "".join([f"<img src='{p}' loading='lazy'>" for p in rel]) + "</div>"
+                section += _render_expand_list("Image files", _format_gallery_labels(correct))
             if galleries["incorrect"]:
                 rel = _relative_paths(galleries["incorrect"], run_dir)
                 section += "<h3>Incorrect samples</h3><div class='grid'>" + "".join([f"<img src='{p}' loading='lazy'>" for p in rel]) + "</div>"
+                section += _render_expand_list("Image files", _format_gallery_labels(incorrect_sample))
             if galleries["high_conf_wrong"]:
                 rel = _relative_paths(galleries["high_conf_wrong"], run_dir)
                 section += "<h3>High-confidence wrong</h3><div class='grid'>" + "".join([f"<img src='{p}' loading='lazy'>" for p in rel]) + "</div>"
+                section += _render_expand_list("Image files", _format_gallery_labels(high_conf_wrong))
 
             class_sections.append(_build_report_section("Classifier (golden)", section))
 
@@ -625,15 +637,23 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                 if "top1_region" in metrics:
                     section += "<p>Top-1 region: {:.3f} | Top-5 region: {:.3f}</p>".format(metrics.get("top1_region", 0.0), metrics.get("top5_region", 0.0))
                 section += "<h3>Best/worst countries</h3>"
+                if not country_groups.empty:
+                    worst_countries = country_groups.sort_values("top1_accuracy", ascending=True).head(cfg.output.top_k)
+                    best_countries = country_groups.sort_values("top1_accuracy", ascending=False).head(cfg.output.top_k)
+                else:
+                    worst_countries = country_groups
+                    best_countries = country_groups
                 section += _render_table_grid([
-                    ("Worst", country_groups.head(cfg.output.top_k)),
-                    ("Best", country_groups.tail(cfg.output.top_k)),
+                    ("Worst", worst_countries),
+                    ("Best", best_countries),
                 ])
                 if not region_groups.empty:
                     section += "<h3>Best/worst regions</h3>"
+                    worst_regions = region_groups.sort_values("top1_accuracy", ascending=True).head(cfg.output.top_k)
+                    best_regions = region_groups.sort_values("top1_accuracy", ascending=False).head(cfg.output.top_k)
                     section += _render_table_grid([
-                        ("Worst", region_groups.head(cfg.output.top_k)),
-                        ("Best", region_groups.tail(cfg.output.top_k)),
+                        ("Worst", worst_regions),
+                        ("Best", best_regions),
                     ])
                 section += "<h3>Top confusion pairs (country)</h3>" + _render_table(country_conf)
                 if not region_conf.empty:
@@ -642,12 +662,15 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
                 if galleries["correct"]:
                     rel = _relative_paths(galleries["correct"], run_dir)
                     section += "<h3>Correct samples</h3><div class='grid'>" + "".join([f"<img src='{p}' loading='lazy'>" for p in rel]) + "</div>"
+                    section += _render_expand_list("Image files", _format_gallery_labels(correct))
                 if galleries["incorrect"]:
                     rel = _relative_paths(galleries["incorrect"], run_dir)
                     section += "<h3>Incorrect samples</h3><div class='grid'>" + "".join([f"<img src='{p}' loading='lazy'>" for p in rel]) + "</div>"
+                    section += _render_expand_list("Image files", _format_gallery_labels(incorrect_sample))
                 if galleries["high_conf_wrong"]:
                     rel = _relative_paths(galleries["high_conf_wrong"], run_dir)
                     section += "<h3>High-confidence wrong</h3><div class='grid'>" + "".join([f"<img src='{p}' loading='lazy'>" for p in rel]) + "</div>"
+                    section += _render_expand_list("Image files", _format_gallery_labels(high_conf_wrong))
 
                 class_sections.append(_build_report_section("Classifier (main)", section))
 
@@ -745,6 +768,24 @@ def run_analyze_run(cfg: AnalyzeRunConfig) -> None:
       color: #2d3b32;
     }
     tr:nth-child(even) { background: #fbfaf7; }
+    details.expand {
+      margin: 10px 0 16px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px dashed var(--border);
+      background: #fbf7ee;
+    }
+    details.expand summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    details.expand pre {
+      white-space: pre-wrap;
+      margin: 8px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
     img {
       margin: 8px 8px 8px 0;
       border-radius: 10px;

@@ -28,7 +28,7 @@
   "output": {
     "out_dir": "runs/analyze_run",
     "run_name": null,
-    "gallery_size": 8,
+    "gallery_size": 6,
     "gallery_per_category": 4,
     "top_k": 5,
     "min_support": 5,

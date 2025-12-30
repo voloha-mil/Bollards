@@ -89,6 +89,7 @@ def run_classifier(
 
             records.append({
                 "image_path": str(row[PATH_COL]) if PATH_COL in row else "",
+                "image_id": str(row.get("image_id", "")) if "image_id" in row else "",
                 "x1": float(row.get("x1", 0.0)),
                 "y1": float(row.get("y1", 0.0)),
                 "x2": float(row.get("x2", 1.0)),

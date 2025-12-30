@@ -118,9 +118,8 @@ def group_accuracy(df: pd.DataFrame, group_col: str, min_support: int) -> pd.Dat
     if group_col not in df.columns:
         return pd.DataFrame()
     grouped = df[df[group_col].notna()].groupby(group_col)["correct_top1"].agg(["mean", "count"]).reset_index()
-    grouped = grouped.rename(columns={"mean": "top1", "count": "support"})
+    grouped = grouped.rename(columns={"mean": "top1_accuracy", "count": "support"})
     grouped = grouped[grouped["support"] >= min_support].copy()
-    grouped = grouped.sort_values("top1", ascending=True)
     return grouped
 
 

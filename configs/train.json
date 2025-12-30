@@ -65,12 +65,12 @@
   "logging": {
     "out_dir": "runs/bollard_country",
     "tb_dir": null,
-    "run_name": "30_12_gpu",
+    "run_name": "30_12_gpu_43",
     "log_images": 4,
     "log_image_every": 1,
     "tb_font_size": 18,
     "best_metric": "val_top1"
   },
   "device": "cuda",
-  "seed": 42
+  "seed": 43
 }
