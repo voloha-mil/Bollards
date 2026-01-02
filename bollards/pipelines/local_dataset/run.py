@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import concurrent.futures as cf
 import json
+import math
 import os
 import random
 from pathlib import Path
@@ -102,6 +103,26 @@ def parse_list_cell(cell) -> list:
             return []
 
 
+def conf_to_percent(conf: float) -> int | None:
+    if not math.isfinite(conf):
+        return None
+    pct = int(conf * 100)
+    if pct < 0:
+        return 0
+    if pct > 100:
+        return 100
+    return pct
+
+
+def log_conf_distribution(split_label: str, conf_hist: List[int]) -> None:
+    total = sum(conf_hist)
+    print(f"[info] {split_label} samples per confidence percent before min_conf (total={total})")
+    for start in range(0, 101, 10):
+        end = min(start + 9, 100)
+        segment = ", ".join(f"{pct:02d}%={conf_hist[pct]}" for pct in range(start, end + 1))
+        print(f"[info]   {segment}")
+
+
 def read_image_size(path: str) -> Tuple[int, int]:
     with Image.open(path) as im:
         w, h = im.size
@@ -166,6 +187,7 @@ def collect_candidates(
     cfg: PrepareLocalDatasetConfig,
     allow_set: set[float] | None,
     allow_countries: set[str] | None = None,
+    conf_hist: List[int] | None = None,
 ) -> Tuple[List[dict], Dict[str, int]]:
     candidates = []
     country_box_counts: Dict[str, int] = {}
@@ -198,14 +220,20 @@ def collect_candidates(
             except Exception:
                 continue
 
-            if conf < cfg.min_conf:
-                continue
             if allow_set is not None and cls not in allow_set:
                 continue
 
             bw_px = abs(x2 - x1)
             bh_px = abs(y2 - y1)
             if bw_px < cfg.min_box_w_px or bh_px < cfg.min_box_h_px:
+                continue
+
+            if conf_hist is not None:
+                pct = conf_to_percent(conf)
+                if pct is not None:
+                    conf_hist[pct] += 1
+
+            if conf < cfg.min_conf:
                 continue
 
             dets.append((i, conf, cls, x1, y1, x2, y2))
@@ -318,7 +346,9 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
 
     allow_set = set(cfg.cls_allow) if cfg.cls_allow is not None else None
 
-    train_candidates, country_box_counts = collect_candidates(train_df, cfg, allow_set)
+    train_conf_hist = [0] * 101
+    train_candidates, country_box_counts = collect_candidates(train_df, cfg, allow_set, conf_hist=train_conf_hist)
+    log_conf_distribution(f"train ({cfg.train_split})", train_conf_hist)
     if not train_candidates:
         raise SystemExit("No train candidate boxes after filtering. Relax filters or min_country_count.")
 
@@ -337,7 +367,15 @@ def run_prepare_local_dataset(cfg: PrepareLocalDatasetConfig) -> None:
     if not keep_countries:
         raise SystemExit("No countries remain after min_country_count filtering.")
 
-    val_candidates, _ = collect_candidates(val_df, cfg, allow_set, allow_countries=keep_countries)
+    val_conf_hist = [0] * 101
+    val_candidates, _ = collect_candidates(
+        val_df,
+        cfg,
+        allow_set,
+        allow_countries=keep_countries,
+        conf_hist=val_conf_hist,
+    )
+    log_conf_distribution(f"val ({cfg.val_split})", val_conf_hist)
     if not val_candidates:
         raise SystemExit("No validation candidate boxes after filtering. Check filters or min_country_count.")
 

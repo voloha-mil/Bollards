@@ -1,7 +1,7 @@
 {
-  "min_conf": 0.4,
+  "min_conf": 0.5,
   "cls_allow": null,
   "min_box_w_px": 12.0,
   "min_box_h_px": 18.0,
-  "max_boxes_per_image": 1
+  "max_boxes_per_image": 3
 }
